@@ -1,0 +1,11 @@
+.DS_Store
+*.kz
+.env
+**/cache/*.*
+cache/
+*.pyc
+__pycache__/
+*.log
+
+# Distribution packages
+kineviz-obsidian-base-*

@@ -1,0 +1,40 @@
+# Exclude sensitive files
+.env
+.env.*
+!docker.env.example
+
+# Exclude cache and temporary files
+cli/cache/
+cli/logs/
+cli/database/
+cli/*.kz
+cli/__pycache__/
+cli/*.pyc
+cli/*.pyo
+cli/.venv/
+
+# Exclude development files
+.git/
+.gitignore
+*.md
+!DOCKER.md
+!DISTRIBUTION.md
+
+# Exclude distribution files
+create-distribution.sh
+build-and-push.sh
+knowledge-map-tool-*.tar.gz
+
+# Exclude test files
+test_*.kz
+test_*.md
+
+# Exclude IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Exclude OS files
+.DS_Store
+Thumbs.db

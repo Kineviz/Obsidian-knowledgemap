@@ -1,0 +1,31 @@
+services:
+  knowledge-map-monitor:
+    build: .
+    container_name: knowledge-map-monitor
+    environment:
+      - VAULT_PATH=/vault
+      - SERVER_PORT=${SERVER_PORT:-7001}
+      - MAX_CONCURRENT=${MAX_CONCURRENT:-5}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "${SERVER_PORT:-7001}:${SERVER_PORT:-7001}"
+    volumes:
+      # Mount your Obsidian vault directory (read-write for kuzu db)
+      - ${VAULT_PATH:-~/Obsidian/ExampleVault}:/vault
+      # Mount cache directory for persistence
+      - knowledge-map-cache:/app/cache
+      # Mount logs directory
+      - knowledge-map-logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7001/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  knowledge-map-cache:
+    driver: local
+  knowledge-map-logs:
+    driver: local
