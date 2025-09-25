@@ -75,6 +75,17 @@ Once running, you can access:
 - **GraphXR**: `http://localhost:7001/kuzudb/kuzu_db` (Neo4j-compatible endpoints)
 - **Debug Info**: `http://localhost:7001/debug/crashes`
 
+### 5. Visual analysis with GraphXR
+
+To visualize and analyze your knowledge graph with advanced graph analytics:
+
+1. **Create Account**: Visit [https://graphxr.kineviz.com](https://graphxr.kineviz.com) and create a free account
+2. **Request Access**: Contact support to request access to GraphXR 3.0, which includes Kuzu database support
+3. **Connect**: Once approved, you can connect GraphXR directly to your running knowledge map server at `http://localhost:7001/kuzudb/kuzu_db`
+
+This enables advanced graph visualization, analytics, and exploration of your Obsidian knowledge network.
+
+
 ## 📦 Installation
 
 ### Using uv (Recommended)
