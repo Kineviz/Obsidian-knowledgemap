@@ -63,12 +63,12 @@ uv run manual_trigger.py --vault-path '/path/to/vault'
 
 ### Start Server Only
 ```bash
-uv run kuzu_neo4j_server.py '/path/to/vault/.kineviz_graph/database/knowledge_graph.kz' --port 7001
+uv run kuzu_server.py '/path/to/vault/.kineviz_graph/database/knowledge_graph.kz' --port 7001
 ```
 
 ### Stop Server
 ```bash
-pkill -f kuzu_neo4j_server
+pkill -f kuzu_server
 ```
 
 ## Server Access

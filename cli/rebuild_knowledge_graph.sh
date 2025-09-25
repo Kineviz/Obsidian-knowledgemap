@@ -70,7 +70,7 @@ fi
 print_status "Step 2: Stopping Kuzu server..."
 # Kill any existing Kuzu processes
 pkill -f "kuzu.*$SERVER_PORT" 2>/dev/null || true
-pkill -f "kuzu_neo4j_server" 2>/dev/null || true
+pkill -f "kuzu_server" 2>/dev/null || true
 sleep 2
 print_success "Kuzu server stopped"
 
@@ -93,4 +93,4 @@ print_status "Press Ctrl+C to stop the server"
 print_status ""
 
 # Start the server in the foreground
-uv run kuzu_neo4j_server.py "$VAULT_PATH/.kineviz_graph/database/knowledge_graph.kz" --port "$SERVER_PORT"
+uv run kuzu_server.py "$VAULT_PATH/.kineviz_graph/database/knowledge_graph.kz" --port "$SERVER_PORT"

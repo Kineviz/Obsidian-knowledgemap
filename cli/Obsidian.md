@@ -91,5 +91,5 @@ If you prefer one-time processing without monitoring:
 uv run main_obsidian.py /path/to/obsidian/vault
 
 # Then start server separately
-uv run kuzu_neo4j_server.py /path/to/obsidian/vault/.kineviz_graph/database/knowledge_graph.kz --port 7001
+uv run kuzu_server.py /path/to/obsidian/vault/.kineviz_graph/database/knowledge_graph.kz --port 7001
 ```

@@ -64,7 +64,7 @@ fi
 print_status "Step 2: Starting Kuzu server on port $SERVER_PORT..."
 # Kill any existing server first
 pkill -f "kuzu.*$SERVER_PORT" 2>/dev/null || true
-pkill -f "kuzu_neo4j_server" 2>/dev/null || true
+pkill -f "kuzu_server" 2>/dev/null || true
 sleep 2
 
 print_success "Knowledge graph update completed successfully!"
@@ -75,4 +75,4 @@ print_status "Press Ctrl+C to stop the server"
 print_status ""
 
 # Start the server in the foreground
-uv run kuzu_neo4j_server.py "$VAULT_PATH/.kineviz_graph/database/knowledge_graph.kz" --port "$SERVER_PORT"
+uv run kuzu_server.py "$VAULT_PATH/.kineviz_graph/database/knowledge_graph.kz" --port "$SERVER_PORT"

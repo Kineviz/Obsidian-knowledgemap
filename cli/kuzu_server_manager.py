@@ -51,7 +51,7 @@ class KuzuServerManager:
                 # Start the server process
                 cmd = [
                     sys.executable, 
-                    "kuzu_neo4j_server.py", 
+                    "kuzu_server.py", 
                     str(self.db_path),
                     "--port", str(self.port),
                     "--host", self.host

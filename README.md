@@ -140,7 +140,7 @@ uv run step3_build.py --vault-path /path/to/obsidian/vault
 To run just the Neo4j-compatible server:
 
 ```bash
-uv run kuzu_neo4j_server.py /path/to/kuzu/database --port 7001
+uv run kuzu_server.py /path/to/kuzu/database --port 7001
 ```
 
 ### Command Line Options
@@ -158,7 +158,7 @@ uv run kuzu_neo4j_server.py /path/to/kuzu/database --port 7001
 - `--chunk-size`: Maximum chunk size in tokens (default: 1024)
 - `--embedding-model`: Embedding model for semantic chunking (default: minishlab/potion-base-8M)
 
-#### Server (kuzu_neo4j_server.py)
+#### Server (kuzu_server.py)
 - `db_path`: Path to Kuzu database (required)
 - `--port`: Port to run server on (default: 7001)
 - `--host`: Host to bind to (default: 0.0.0.0)
@@ -304,7 +304,7 @@ Obsidian-knowledgemap/
 │   ├── step2_organize.py        # Data organization
 │   ├── step3_build.py           # Database building
 │   ├── step4_monitor.py         # Real-time monitoring
-│   ├── kuzu_neo4j_server.py     # Neo4j-compatible server
+│   ├── kuzu_server.py           # Neo4j-compatible server
 │   ├── entity_resolution.py     # Entity resolution logic
 │   ├── metadata_extractor.py    # Metadata extraction
 │   └── tests/                   # Test suite

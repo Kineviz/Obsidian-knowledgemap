@@ -5,7 +5,7 @@ Kuzu Neo4j-Compatible API Server
 This is a Python implementation of an API server that can service Kuzu as if it's Neo4j,
 based on the existing Node.js database proxy codebase.
 
-Usage: python kuzu_neo4j_server.py <path_to_kuzu_db>
+Usage: python kuzu_server.py <path_to_kuzu_db>
 """
 
 import os
@@ -780,7 +780,7 @@ def print_usage():
     print("""
 Kuzu Neo4j-Compatible API Server
 
-Usage: python kuzu_neo4j_server.py <path_to_kuzu_db> [options]
+Usage: python kuzu_server.py <path_to_kuzu_db> [options]
 
 Arguments:
   path_to_kuzu_db    Path to the Kuzu database directory
@@ -795,18 +795,18 @@ Options:
 
 Examples:
   # HTTP server
-  python kuzu_neo4j_server.py /data/kuzu/my_database
-  python kuzu_neo4j_server.py ./my_kuzu_db --port 3000
+  python kuzu_server.py /data/kuzu/my_database
+  python kuzu_server.py ./my_kuzu_db --port 3000
 
   # HTTPS server with SSL certificates
-  python kuzu_neo4j_server.py ./my_kuzu_db --ssl-cert cert.pem --ssl-key key.pem
-  python kuzu_neo4j_server.py ./my_kuzu_db --ssl-cert cert.pem --ssl-key key.pem --port 8443
+  python kuzu_server.py ./my_kuzu_db --ssl-cert cert.pem --ssl-key key.pem
+  python kuzu_server.py ./my_kuzu_db --ssl-cert cert.pem --ssl-key key.pem --port 8443
 
   # HTTPS with encrypted private key
-  python kuzu_neo4j_server.py ./my_kuzu_db --ssl-cert cert.pem --ssl-key key.pem --ssl-password mypassword
+  python kuzu_server.py ./my_kuzu_db --ssl-cert cert.pem --ssl-key key.pem --ssl-password mypassword
 
   # Debug mode
-  python kuzu_neo4j_server.py ./my_kuzu_db --debug
+  python kuzu_server.py ./my_kuzu_db --debug
 """)
 
 def parse_arguments():

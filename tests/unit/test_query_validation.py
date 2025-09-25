@@ -8,7 +8,7 @@ import sys
 # Add cli directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "cli"))
 
-from kuzu_neo4j_server import KuzuQueryProcessor
+from kuzu_server import KuzuQueryProcessor
 
 class TestQueryValidation:
     def setup_method(self):

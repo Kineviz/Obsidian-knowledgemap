@@ -61,7 +61,7 @@ cd "$SCRIPT_DIR"
 # Kill any existing server first
 print_status "Stopping any existing Kuzu server..."
 pkill -f "kuzu.*$SERVER_PORT" 2>/dev/null || true
-pkill -f "kuzu_neo4j_server" 2>/dev/null || true
+pkill -f "kuzu_server" 2>/dev/null || true
 sleep 2
 
 print_success "Starting Kuzu server in foreground..."
@@ -71,4 +71,4 @@ print_status "Press Ctrl+C to stop the server"
 print_status ""
 
 # Start the server in the foreground
-uv run kuzu_neo4j_server.py "$DB_PATH" --port "$SERVER_PORT"
+uv run kuzu_server.py "$DB_PATH" --port "$SERVER_PORT"
