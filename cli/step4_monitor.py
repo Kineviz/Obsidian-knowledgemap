@@ -548,13 +548,6 @@ class VaultMonitor:
         console.print(f"[cyan]Starting vault monitor for: {self.vault_path}[/cyan]")
         
         try:
-            # Start Kuzu server first
-            console.print("[cyan]Starting Kuzu Neo4j server...[/cyan]")
-            if self.server_manager.start_server(force_restart=True):
-                console.print(f"[green]Kuzu server started at {self.server_manager.get_server_url()}[/green]")
-            else:
-                console.print("[yellow]Failed to start Kuzu server, continuing without it[/yellow]")
-            
             # Set up file system observer
             self.handler = VaultFileHandler(self.vault_path, self)
             self.observer = Observer()
@@ -571,6 +564,13 @@ class VaultMonitor:
             # Run initial validation after monitoring is started
             console.print("[cyan]Running initial validation...[/cyan]")
             self.validate_and_process_changes()
+            
+            # Start Kuzu server after database is built
+            console.print("[cyan]Starting Kuzu Neo4j server...[/cyan]")
+            if self.server_manager.start_server(force_restart=True):
+                console.print(f"[green]Kuzu server started at {self.server_manager.get_server_url()}[/green]")
+            else:
+                console.print("[yellow]Failed to start Kuzu server, continuing without it[/yellow]")
             
             try:
                 while self.running:

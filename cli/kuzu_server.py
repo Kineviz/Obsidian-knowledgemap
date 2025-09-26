@@ -217,9 +217,10 @@ class KuzuQueryProcessor:
             logger.info(f"Initializing Kuzu connection to: {self.db_path}")
             
             # Create database directory if it doesn't exist
-            if not os.path.exists(self.db_path):
-                os.makedirs(self.db_path, exist_ok=True)
-                logger.info(f"Created database directory: {self.db_path}")
+            db_dir = os.path.dirname(self.db_path)
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+                logger.info(f"Created database directory: {db_dir}")
             
             # Create database and connection
             self.database = kuzu.Database(self.db_path)
