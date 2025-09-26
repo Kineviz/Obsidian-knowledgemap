@@ -30,6 +30,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import kuzu
 
+# Import our new pooling module
+from kuzu_pool import KuzuConnectionPool, PoolConfig
+
 # Enhanced logging configuration
 def setup_logging():
     """Setup enhanced logging with file and console handlers"""
@@ -203,18 +206,18 @@ class QueryResult:
 class KuzuQueryProcessor:
     """Processes Kuzu queries and converts results to Neo4j-compatible format"""
     
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, pool_config: PoolConfig = None):
         self.db_path = db_path
-        self.database = None
-        self.connection = None
+        self.pool_config = pool_config or PoolConfig()
+        self.connection_pool = None
         self.query_count = 0
         self.error_count = 0
         self.start_time = time.time()
     
-    def initialize_connection(self):
-        """Initialize Kuzu database connection"""
+    async def initialize_connection(self):
+        """Initialize Kuzu database connection pool"""
         try:
-            logger.info(f"Initializing Kuzu connection to: {self.db_path}")
+            logger.info(f"Initializing Kuzu connection pool to: {self.db_path}")
             
             # Create database directory if it doesn't exist
             db_dir = os.path.dirname(self.db_path)
@@ -222,20 +225,26 @@ class KuzuQueryProcessor:
                 os.makedirs(db_dir, exist_ok=True)
                 logger.info(f"Created database directory: {db_dir}")
             
-            # Create database and connection
-            self.database = kuzu.Database(self.db_path)
-            self.connection = kuzu.Connection(self.database)
+            # Create connection pool
+            self.connection_pool = KuzuConnectionPool(self.db_path, self.pool_config)
             
-            # Test connection with simple query
-            test_result = self.connection.execute("CALL show_tables() RETURN *")
-            logger.info(f"Successfully connected to Kuzu database at: {self.db_path}")
-            logger.info(f"Database test query successful")
+            # Start the pool (this will wait for database to be available)
+            success = await self.connection_pool.start()
+            if not success:
+                raise Exception("Failed to start connection pool")
+            
+            logger.info(f"Successfully initialized Kuzu connection pool at: {self.db_path}")
             
         except Exception as e:
-            logger.error(f"Failed to initialize Kuzu connection: {e}")
+            logger.error(f"Failed to initialize Kuzu connection pool: {e}")
             logger.error(f"Traceback:\n{traceback.format_exc()}")
             crash_tracker.record_crash(e, "INIT_CONNECTION")
             raise e
+    
+    async def cleanup(self):
+        """Cleanup connection pool"""
+        if self.connection_pool:
+            await self.connection_pool.stop()
     
     def validate_query(self, query: str) -> tuple[bool, str]:
         """Validate query for potential issues"""
@@ -388,8 +397,8 @@ class KuzuQueryProcessor:
             crash_tracker.record_crash(e, "CREATE_RELATIONSHIP", {"item": str(item)})
             raise e
     
-    def execute_query(self, query: str | list) -> List[Dict[str, Any]]:
-        """Execute a query against the Kuzu database"""
+    async def execute_query(self, query: str | list) -> List[Dict[str, Any]]:
+        """Execute a query against the Kuzu database using connection pool"""
         start_time = time.time()
         self.query_count += 1
         
@@ -414,69 +423,32 @@ class KuzuQueryProcessor:
                 results = []
                 for i, q in enumerate(query):
                     logger.debug(f"Executing sub-query {i+1}/{len(query)}: {q[:100]}...")
-                    result = self.connection.execute(q)
-                    # Convert QueryResult to list of dictionaries
-                    columns = result.get_column_names()
-                    rows = []
-                    while result.has_next():
-                        row = result.get_next()
-                        rows.append(dict(zip(columns, row)))
-                    results.extend(rows)
-                    logger.debug(f"Sub-query {i+1} returned {len(rows)} rows")
+                    result = await self.connection_pool.execute_query_with_retry(q)
+                    if result.get("status") == "success":
+                        results.extend(result.get("data", []))
+                    else:
+                        logger.error(f"Sub-query {i+1} failed: {result.get('message')}")
+                        raise Exception(f"Sub-query {i+1} failed: {result.get('message')}")
+                    logger.debug(f"Sub-query {i+1} returned {len(result.get('data', []))} rows")
                 
                 execution_time = time.time() - start_time
                 print(f"✅ QUERY #{self.query_count} COMPLETED in {execution_time:.3f}s - {len(results)} rows returned\n")
                 logger.info(f"Multiple query execution completed in {execution_time:.3f}s, total rows: {len(results)}")
                 return results
             else:
-                # Handle single query with timeout protection
-                result = self.connection.execute(query)
-                columns = result.get_column_names()
-                rows = []
+                # Handle single query using connection pool with retry
+                result = await self.connection_pool.execute_query_with_retry(query)
                 
-                # Add timeout protection for result iteration with SKIP-specific handling
-                max_iterations = 100000  # Prevent infinite loops
-                iteration_count = 0
-                last_progress_time = start_time
-                
-                try:
-                    while result.has_next() and iteration_count < max_iterations:
-                        row = result.get_next()
-                        rows.append(dict(zip(columns, row)))
-                        iteration_count += 1
-                        
-                        # Check for timeout every 100 iterations (more frequent for SKIP queries)
-                        if iteration_count % 100 == 0:
-                            current_time = time.time()
-                            elapsed = current_time - start_time
-                            
-                            # For queries with high SKIP, be more aggressive with timeout
-                            if "SKIP" in query.upper():
-                                if elapsed > 15:  # 15 second timeout for SKIP queries
-                                    logger.warning(f"SKIP query timeout after 15s, stopping at {iteration_count} iterations")
-                                    break
-                            else:
-                                if elapsed > 30:  # 30 second timeout for regular queries
-                                    logger.warning(f"Query timeout after 30s, stopping at {iteration_count} iterations")
-                                    break
-                            
-                            # Check if we're making progress
-                            if current_time - last_progress_time > 5:  # No progress for 5 seconds
-                                logger.warning(f"No progress for 5s, stopping at {iteration_count} iterations")
-                                break
-                            last_progress_time = current_time
-                    
-                    if iteration_count >= max_iterations:
-                        logger.warning(f"Query stopped at max iterations ({max_iterations}), possible infinite loop")
-                            
-                except Exception as e:
-                    logger.error(f"Error during result iteration: {e}")
-                    # Return partial results if any
-                
-                execution_time = time.time() - start_time
-                print(f"✅ QUERY #{self.query_count} COMPLETED in {execution_time:.3f}s - {len(rows)} rows returned\n")
-                logger.info(f"Single query execution completed in {execution_time:.3f}s, returned {len(rows)} rows")
-                return rows
+                if result.get("status") == "success":
+                    rows = result.get("data", [])
+                    execution_time = time.time() - start_time
+                    print(f"✅ QUERY #{self.query_count} COMPLETED in {execution_time:.3f}s - {len(rows)} rows returned\n")
+                    logger.info(f"Single query execution completed in {execution_time:.3f}s, returned {len(rows)} rows")
+                    return rows
+                else:
+                    # Query failed, raise exception with error details
+                    error_msg = result.get("message", "Unknown error")
+                    raise Exception(f"Query execution failed: {error_msg}")
                 
         except Exception as e:
             self.error_count += 1
@@ -487,19 +459,18 @@ class KuzuQueryProcessor:
             crash_tracker.record_crash(e, str(query))
             raise e
     
-    def get_schema_info(self) -> Dict[str, Any]:
+    async def get_schema_info(self) -> Dict[str, Any]:
         """Get schema information in Node.js format"""
         try:
             logger.debug("Getting schema information")
             start_time = time.time()
             
-            # Get all tables
-            tables_result = self.connection.execute("CALL show_tables() RETURN *")
-            tables_columns = tables_result.get_column_names()
-            tables = []
-            while tables_result.has_next():
-                row = tables_result.get_next()
-                tables.append(dict(zip(tables_columns, row)))
+            # Get all tables using connection pool
+            tables_result = await self.connection_pool.execute_query_with_retry("CALL show_tables() RETURN *")
+            if tables_result.get("status") != "success":
+                raise Exception(f"Failed to get tables: {tables_result.get('message')}")
+            
+            tables = tables_result.get("data", [])
             
             logger.debug(f"Found {len(tables)} tables")
             
@@ -538,16 +509,13 @@ class KuzuQueryProcessor:
                 if rel_cyphers:
                     rel_query = " UNION ".join(rel_cyphers)
                     logger.debug(f"Executing relationship connection query: {rel_query[:200]}...")
-                    rel_result = self.connection.execute(rel_query)
-                    rel_columns = rel_result.get_column_names()
-                    
-                    while rel_result.has_next():
-                        row = rel_result.get_next()
-                        rel_data = dict(zip(rel_columns, row))
-                        rel_type = rel_data.get("type", "")
-                        if rel_type in schema["relationships"]:
-                            schema["relationships"][rel_type]["startCategory"] = rel_data.get("source", "")
-                            schema["relationships"][rel_type]["endCategory"] = rel_data.get("target", "")
+                    rel_result = await self.connection_pool.execute_query_with_retry(rel_query)
+                    if rel_result.get("status") == "success":
+                        for rel_data in rel_result.get("data", []):
+                            rel_type = rel_data.get("type", "")
+                            if rel_type in schema["relationships"]:
+                                schema["relationships"][rel_type]["startCategory"] = rel_data.get("source", "")
+                                schema["relationships"][rel_type]["endCategory"] = rel_data.get("target", "")
             
             # Third pass: get table properties and keys
             if schema["categories"] or schema["relationships"]:
@@ -573,29 +541,25 @@ LIMIT 2000''')
                 if table_queries:
                     table_query = "\nUNION\n".join(table_queries)
                     logger.debug(f"Executing table info query: {table_query[:200]}...")
-                    table_result = self.connection.execute(table_query)
-                    table_columns = table_result.get_column_names()
-                    
-                    while table_result.has_next():
-                        row = table_result.get_next()
-                        table_data = dict(zip(table_columns, row))
-                        
-                        table_name = table_data.get("tableName", "")
-                        prop_name = table_data.get("name", "")
-                        prop_type = table_data.get("type", "")
-                        is_key = table_data.get("isKey", False)
-                        
-                        # Find the table in either categories or relationships
-                        if table_name in schema["categories"]:
-                            category = schema["categories"][table_name]
-                            category["props"][prop_name] = prop_type
-                            if is_key:
-                                category["keys"][prop_name] = prop_type
-                        elif table_name in schema["relationships"]:
-                            relationship = schema["relationships"][table_name]
-                            relationship["props"][prop_name] = prop_type
-                            if is_key:
-                                relationship["keys"][prop_name] = prop_type
+                    table_result = await self.connection_pool.execute_query_with_retry(table_query)
+                    if table_result.get("status") == "success":
+                        for table_data in table_result.get("data", []):
+                            table_name = table_data.get("tableName", "")
+                            prop_name = table_data.get("name", "")
+                            prop_type = table_data.get("type", "")
+                            is_key = table_data.get("isKey", False)
+                            
+                            # Find the table in either categories or relationships
+                            if table_name in schema["categories"]:
+                                category = schema["categories"][table_name]
+                                category["props"][prop_name] = prop_type
+                                if is_key:
+                                    category["keys"][prop_name] = prop_type
+                            elif table_name in schema["relationships"]:
+                                relationship = schema["relationships"][table_name]
+                                relationship["props"][prop_name] = prop_type
+                                if is_key:
+                                    relationship["keys"][prop_name] = prop_type
             
             # Fourth pass: convert to Node.js format (separate props from propsTypes)
             for cat_name in schema["categories"]:
@@ -631,7 +595,7 @@ LIMIT 2000''')
                 }
             }
     
-    def convert_cypher_result_to_graph(self, results: List[Dict[str, Any]]) -> QueryResult:
+    async def convert_cypher_result_to_graph(self, results: List[Dict[str, Any]]) -> QueryResult:
         """Convert Kuzu query results to Neo4j-compatible graph format"""
         try:
             logger.debug(f"Converting {len(results)} results to graph format")
@@ -847,12 +811,24 @@ def create_app(query_processor: KuzuQueryProcessor) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Lifespan context manager for FastAPI app"""
-        # Startup - verify query processor is ready
+        # Startup - initialize query processor
         if query_processor is None:
             raise RuntimeError("Query processor not initialized.")
-        logger.info("FastAPI application started successfully")
+        
+        try:
+            await query_processor.initialize_connection()
+            print(f"Connected to Kuzu database at: {query_processor.db_path}")
+            logger.info("FastAPI application started successfully")
+        except Exception as e:
+            print(f"Failed to connect to database: {e}")
+            print(f"Check the logs at logs/kuzu_server.log for more details")
+            raise e
+        
         yield
-        # Shutdown
+        
+        # Shutdown - cleanup connection pool
+        if query_processor:
+            await query_processor.cleanup()
         logger.info("FastAPI application shutting down")
     
     app = FastAPI(title="Kuzu Neo4j-Compatible API", version="1.0.0", lifespan=lifespan)
@@ -887,13 +863,22 @@ def create_app(query_processor: KuzuQueryProcessor) -> FastAPI:
     async def health_check():
         """Health check endpoint"""
         try:
-            # Test database connection
-            test_result = query_processor.connection.execute("CALL show_tables() RETURN *")
-            return {
-                "status": "healthy",
-                "database": "connected",
-                "timestamp": datetime.now().isoformat()
-            }
+            # Test database connection using pool
+            test_result = await query_processor.connection_pool.execute_query_with_retry("CALL show_tables() RETURN *")
+            if test_result.get("status") == "success":
+                return {
+                    "status": "healthy",
+                    "database": "connected",
+                    "pool_status": query_processor.connection_pool.get_pool_status(),
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "status": "unhealthy",
+                    "database": "disconnected",
+                    "error": test_result.get("message", "Unknown error"),
+                    "timestamp": datetime.now().isoformat()
+                }
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return {
@@ -977,7 +962,7 @@ def create_app(query_processor: KuzuQueryProcessor) -> FastAPI:
             if query.strip().upper() in ["CALL SCHEMA", "CALL SCHEMA()"]:
                 logger.debug(f"Request {request_id}: Processing schema request")
                 # Return schema in Node.js format
-                schema_data = query_processor.get_schema_info()
+                schema_data = await query_processor.get_schema_info()
                 request_time = time.time() - request_start_time
                 logger.info(f"Request {request_id}: Schema request completed in {request_time:.3f}s")
                 return {
@@ -992,11 +977,11 @@ def create_app(query_processor: KuzuQueryProcessor) -> FastAPI:
             
             # Execute the query
             logger.debug(f"Request {request_id}: Executing query")
-            results = query_processor.execute_query(processed_query)
+            results = await query_processor.execute_query(processed_query)
             
             # Convert results to Node.js-compatible format
             logger.debug(f"Request {request_id}: Converting results")
-            query_result = query_processor.convert_cypher_result_to_graph(results)
+            query_result = await query_processor.convert_cypher_result_to_graph(results)
             
             request_time = time.time() - request_start_time
             completion_timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -1080,19 +1065,17 @@ def main():
         print(f"SSL configuration error: {e}")
         sys.exit(1)
     
-    # Initialize query processor
-    query_processor = KuzuQueryProcessor(db_path)
+    # Initialize query processor with custom pool config
+    pool_config = PoolConfig(
+        max_connections=5,
+        max_retries=3,
+        retry_delay=10,
+        idle_timeout=300,
+        health_check_interval=60
+    )
+    query_processor = KuzuQueryProcessor(db_path, pool_config)
     
-    try:
-        # Test connection
-        query_processor.initialize_connection()
-        print(f"Connected to Kuzu database at: {db_path}")
-    except Exception as e:
-        print(f"Failed to connect to database: {e}")
-        print(f"Check the logs at logs/kuzu_server.log for more details")
-        sys.exit(1)
-    
-    # Create FastAPI app with the initialized query processor
+    # Create FastAPI app with the query processor
     app = create_app(query_processor)
     
     # Determine protocol and port
