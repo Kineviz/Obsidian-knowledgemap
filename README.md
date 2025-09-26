@@ -48,12 +48,45 @@ cd Obsidian-knowledgemap
 
 ### 2. Environment Configuration
 
-Create a `.env` file in the `cli/` directory:
+Create a `.env` file in the project root directory:
 
 ```bash
-cd cli
-echo "OPENAI_API_KEY=your_api_key_here" > .env
+# Copy the example file
+cp .env.example .env
+
+# Edit the configuration
+nano .env  # or use your preferred editor
 ```
+
+**Required Configuration:**
+```bash
+# In .env file
+OPENAI_API_KEY=your_openai_api_key_here
+VAULT_PATH=/path/to/your/obsidian/vault
+```
+
+**Optional Configuration:**
+```bash
+# Server settings
+SERVER_PORT=7001
+HOST=0.0.0.0
+
+# Processing settings
+MAX_CONCURRENT=5
+CHUNK_THRESHOLD=0.75
+CHUNK_SIZE=1024
+EMBEDDING_MODEL=minishlab/potion-base-8M
+
+# SSL settings (for HTTPS)
+SSL_CERT=/path/to/cert.pem
+SSL_KEY=/path/to/key.pem
+SSL_PASSWORD=your_ssl_password
+
+# Debug mode
+DEBUG=false
+```
+
+> **Note**: Command line arguments always override `.env` values. See [Configuration](#-configuration) for details.
 
 ### 3. Start Real-time Monitoring (Recommended)
 
@@ -215,28 +248,73 @@ In Default, the tool creates a Kuzu database with the following schema: (Will ad
 
 ## ⚙️ Configuration
 
-### Environment Variables
+The application supports configuration through environment variables (`.env` file) and command line arguments. **Command line arguments always override `.env` values**.
 
-Create a `.env` file in the `cli/` directory:
+### Environment Variables (.env file)
+
+Create a `.env` file in the project root directory:
 
 ```bash
-# Required
-OPENAI_API_KEY=your_openai_api_key_here
+# Copy the example file
+cp .env.example .env
 
-# Optional
-CHUNK_THRESHOLD=0.75
-CHUNK_SIZE=1024
-EMBEDDING_MODEL=minishlab/potion-base-8M
-MAX_CONCURRENT=5
+# Edit with your values
+nano .env
+```
+
+#### Required Variables
+```bash
+OPENAI_API_KEY=your_openai_api_key_here  # OpenAI API key for AI extraction
+VAULT_PATH=/path/to/your/obsidian/vault  # Path to your Obsidian vault
+```
+
+#### Optional Variables
+```bash
+# Server Configuration
+SERVER_PORT=7001                         # Port for the Kuzu server
+HOST=0.0.0.0                           # Host to bind to
+
+# Processing Configuration
+MAX_CONCURRENT=5                        # Max concurrent file processing tasks
+CHUNK_THRESHOLD=0.75                    # Semantic similarity threshold (0.0-1.0)
+CHUNK_SIZE=1024                         # Maximum tokens per chunk
+EMBEDDING_MODEL=minishlab/potion-base-8M # Embedding model for semantic chunking
+
+# SSL Configuration (for HTTPS)
+SSL_CERT=/path/to/cert.pem             # SSL certificate file
+SSL_KEY=/path/to/key.pem               # SSL private key file
+SSL_PASSWORD=your_ssl_password         # SSL key password (if encrypted)
+
+# Debug Configuration
+DEBUG=false                             # Enable debug mode
+```
+
+### Configuration Priority
+
+1. **Command line arguments** (highest priority)
+2. **Environment variables** (from `.env` file)
+3. **Default values** (lowest priority)
+
+### Examples
+
+```bash
+# Using .env file only
+uv run step4_monitor.py
+
+# Override specific values from command line
+uv run step4_monitor.py --vault-path /different/vault --server-port 8000
+
+# Override .env with environment variable
+VAULT_PATH=/another/vault uv run step4_monitor.py
 ```
 
 ### Semantic Chunking Parameters
 
-- **threshold**: Controls how similar content must be to be grouped together (0.0-1.0)
+- **CHUNK_THRESHOLD**: Controls how similar content must be to be grouped together (0.0-1.0)
   - Higher values (0.8-0.9): More strict grouping, smaller chunks
   - Lower values (0.5-0.7): More lenient grouping, larger chunks
-- **chunk_size**: Maximum number of tokens per chunk
-- **embedding_model**: The embedding model used for semantic similarity
+- **CHUNK_SIZE**: Maximum number of tokens per chunk
+- **EMBEDDING_MODEL**: The embedding model used for semantic similarity
 
 ## 🐳 Docker Support
 
