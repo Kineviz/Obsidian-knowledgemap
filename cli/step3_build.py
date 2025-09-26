@@ -15,6 +15,7 @@ import click
 import kuzu
 from dotenv import load_dotenv
 from rich.console import Console
+from obsidian_config_reader import ObsidianConfigReader
 
 # Load environment variables
 load_dotenv()
@@ -28,7 +29,21 @@ class Step3Builder:
         self.db_path = db_path
         self.db = kuzu.Database(db_path)
         self.conn = kuzu.Connection(self.db)
+        
+        # Initialize Obsidian config reader for template folder exclusion
+        self.obsidian_config = ObsidianConfigReader(vault_path)
+        self.template_folder = self._get_template_folder()
+        
         self._init_schema()
+    
+    def _get_template_folder(self) -> Optional[str]:
+        """Get template folder path from Obsidian configuration"""
+        if self.obsidian_config.is_templates_enabled():
+            template_folder = self.obsidian_config.get_template_folder()
+            if template_folder:
+                console.print(f"[cyan]Templates enabled, excluding folder: {template_folder}[/cyan]")
+            return template_folder
+        return None
 
     def _init_schema(self) -> None:
         """Initialize the Kuzu database schema"""
@@ -292,6 +307,18 @@ class Step3Builder:
             # Skip hidden directories
             if any(part.startswith('.') for part in md_file.relative_to(self.vault_path).parts):
                 continue
+            
+            # Skip files in template folder if templates are enabled
+            if self.template_folder:
+                try:
+                    relative_path = md_file.relative_to(self.vault_path)
+                    if str(relative_path).startswith(self.template_folder + "/"):
+                        console.print(f"[yellow]Skipping template file: {relative_path}[/yellow]")
+                        continue
+                except ValueError:
+                    # File is not relative to vault path, skip it
+                    continue
+            
             source_files.add(str(md_file))
         
         console.print(f"[cyan]Found {len(source_files)} markdown files in vault[/cyan]")
