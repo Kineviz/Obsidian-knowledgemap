@@ -608,6 +608,13 @@ class KnowledgeMapTool:
         markdown_files = []
         for file_path in input_folder.rglob("*.md"):
             if file_path.is_file():
+                # Skip files in hidden directories (starting with .)
+                try:
+                    if any(part.startswith('.') for part in file_path.relative_to(input_folder).parts):
+                        continue
+                except ValueError:
+                    # File is not relative to input folder, skip it
+                    continue
                 markdown_files.append(file_path)
         return markdown_files
 

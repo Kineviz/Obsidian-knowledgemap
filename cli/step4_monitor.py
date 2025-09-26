@@ -22,6 +22,7 @@ from watchdog.observers import Observer
 from kuzu_server_manager import KuzuServerManager
 from file_tracker import FileTracker, ChangeType
 from manual_trigger import ManualTrigger
+from obsidian_config_reader import ObsidianConfigReader
 
 # Load environment variables
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -41,6 +42,19 @@ class VaultFileHandler(FileSystemEventHandler):
         self.processing_scheduled = False
         self.debounce_timer: Optional[threading.Timer] = None
         
+        # Initialize Obsidian config reader for template folder exclusion
+        self.obsidian_config = ObsidianConfigReader(vault_path)
+        self.template_folder = self._get_template_folder()
+    
+    def _get_template_folder(self) -> Optional[str]:
+        """Get template folder path from Obsidian configuration"""
+        if self.obsidian_config.is_templates_enabled():
+            template_folder = self.obsidian_config.get_template_folder()
+            if template_folder:
+                console.print(f"[cyan]Templates enabled, excluding folder: {template_folder}[/cyan]")
+            return template_folder
+        return None
+        
     def should_process_file(self, file_path: Path) -> bool:
         """Check if a file should be processed"""
         # Only process markdown files
@@ -49,13 +63,19 @@ class VaultFileHandler(FileSystemEventHandler):
             
         # Must be within the vault directory
         try:
-            file_path.relative_to(self.vault_path)
+            relative_path = file_path.relative_to(self.vault_path)
         except ValueError:
             return False
             
         # Skip hidden directories
-        if any(part.startswith('.') for part in file_path.relative_to(self.vault_path).parts):
+        if any(part.startswith('.') for part in relative_path.parts):
             return False
+        
+        # Skip files in template folder if templates are enabled
+        if self.template_folder:
+            if str(relative_path).startswith(self.template_folder + "/"):
+                console.print(f"[yellow]Skipping template file: {relative_path}[/yellow]")
+                return False
             
         return True
     

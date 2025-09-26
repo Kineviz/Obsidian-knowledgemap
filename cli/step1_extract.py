@@ -18,6 +18,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from rich.console import Console
 from prompt_loader import get_prompt_loader
+from obsidian_config_reader import ObsidianConfigReader
 
 # Load environment variables
 load_dotenv()
@@ -58,6 +59,10 @@ class Step1Extractor:
         self.chunk_size = chunk_size
         self.embedding_model = embedding_model
         
+        # Initialize Obsidian config reader
+        self.obsidian_config = ObsidianConfigReader(vault_path)
+        self.template_folder = self._get_template_folder()
+        
         # Initialize OpenAI client
         if self.openai_api_key:
             self.client = AsyncOpenAI(api_key=self.openai_api_key)
@@ -67,6 +72,15 @@ class Step1Extractor:
         # Initialize chunker
         self._init_chunker()
 
+    def _get_template_folder(self) -> Optional[str]:
+        """Get template folder path from Obsidian configuration"""
+        if self.obsidian_config.is_templates_enabled():
+            template_folder = self.obsidian_config.get_template_folder()
+            if template_folder:
+                console.print(f"[cyan]Templates enabled, excluding folder: {template_folder}[/cyan]")
+            return template_folder
+        return None
+    
     def _init_chunker(self):
         """Initialize the chunking backend"""
         if self.chunking_backend == "recursive-markdown":
@@ -300,12 +314,24 @@ class Step1Extractor:
         """Process all markdown files in the Obsidian vault"""
         console.print(f"[cyan]Processing Obsidian vault: {self.vault_path}[/cyan]")
         
-        # Find all markdown files in the vault (excluding .obsidian and .kineviz_graph)
+        # Find all markdown files in the vault (excluding .obsidian, .kineviz_graph, and template folder)
         markdown_files = []
         for file_path in self.vault_path.rglob("*.md"):
             # Skip files in hidden directories
             if any(part.startswith('.') for part in file_path.relative_to(self.vault_path).parts):
                 continue
+            
+            # Skip files in template folder if templates are enabled
+            if self.template_folder:
+                try:
+                    relative_path = file_path.relative_to(self.vault_path)
+                    if str(relative_path).startswith(self.template_folder + "/"):
+                        console.print(f"[yellow]Skipping template file: {relative_path}[/yellow]")
+                        continue
+                except ValueError:
+                    # File is not relative to vault path, skip it
+                    continue
+            
             markdown_files.append(file_path)
         
         console.print(f"[cyan]Found {len(markdown_files)} markdown files[/cyan]")

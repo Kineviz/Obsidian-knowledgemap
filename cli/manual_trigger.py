@@ -69,8 +69,10 @@ class ManualTrigger:
         # Get all markdown files in vault
         vault_files = set()
         for md_file in self.vault_path.rglob("*.md"):
-            if ".kineviz_graph" not in str(md_file):
-                vault_files.add(str(md_file.relative_to(self.vault_path)))
+            # Skip files in hidden directories (starting with .)
+            if any(part.startswith('.') for part in md_file.relative_to(self.vault_path).parts):
+                continue
+            vault_files.add(str(md_file.relative_to(self.vault_path)))
         
         # Get all CSV files and check which ones are orphaned
         orphaned_csvs = []
