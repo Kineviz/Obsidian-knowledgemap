@@ -15,11 +15,14 @@ system_prompts:
       - **Company**: Organizations, institutions, businesses, educational institutions, government agencies, non-profits, and any named corporate entities
       
       ## Relationship Types:
-      Use specific, one-word relationship types such as:
-      - works_at, founded, leads, manages, reports_to, collaborates_with
-      - acquired, merged_with, partners_with, competes_with, supplies
-      - studied_at, graduated_from, teaches_at, researches_at
-      - invested_in, advises, consults_for, serves_on
+      Use specific, one-word relationship types. You are NOT restricted to the examples below - use any appropriate relationship type that accurately describes the connection. Examples include:
+      - Professional: works_at, founded, leads, manages, reports_to, collaborates_with
+      - Business: acquired, merged_with, partners_with, competes_with, supplies
+      - Education: studied_at, graduated_from, teaches_at, researches_at
+      - Personal: married_to, parent_of, child_of, sibling_of, friend_of
+      - Other: invested_in, advises, consults_for, serves_on, mentor_of
+      
+      Create new relationship types as needed to accurately capture the relationship.
       
       ## Extraction Rules:
       1. Extract both explicit relationships and standalone entities
