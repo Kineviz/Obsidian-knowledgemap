@@ -316,6 +316,40 @@ VAULT_PATH=/another/vault uv run step4_monitor.py
 - **CHUNK_SIZE**: Maximum number of tokens per chunk
 - **EMBEDDING_MODEL**: The embedding model used for semantic similarity
 
+### AI Prompt Configuration
+
+The system uses configurable AI prompts for knowledge extraction. Prompts are defined in `prompts.yaml` in the project root:
+
+```yaml
+# System prompts for different extraction tasks
+system_prompts:
+  relationship_extraction:
+    role: "system"
+    content: |
+      You are a knowledge extraction expert. Extract relationships between Person and Company entities...
+
+# User prompts with variable substitution
+user_prompts:
+  relationship_extraction:
+    role: "user"
+    content: "Extract relationships from this text and return them in JSON format:\n\n{text}"
+
+# Model configuration
+model_config:
+  relationship_extraction_model: "gpt-4o-mini"
+  relationship_extraction_temperature: 0.1
+  relationship_extraction_response_format: "json_object"
+```
+
+**Customizing Prompts:**
+1. Edit `prompts.yaml` to modify AI behavior
+2. Add new prompt types for different extraction tasks
+3. Adjust model parameters (temperature, model, response format)
+4. Prompts are automatically reloaded when the configuration file changes
+
+**Available Prompt Types:**
+- `relationship_extraction`: Single prompt used by all modules (step1_extract.py, main.py, step4_monitor.py)
+
 ## 🐳 Docker Support
 
 The project includes Docker support for easy deployment:
@@ -385,8 +419,11 @@ Obsidian-knowledgemap/
 │   ├── kuzu_server.py           # Neo4j-compatible server
 │   ├── entity_resolution.py     # Entity resolution logic
 │   ├── metadata_extractor.py    # Metadata extraction
+│   ├── prompt_loader.py         # AI prompt configuration loader
 │   └── tests/                   # Test suite
 ├── ai/                          # AI specifications and schemas
+├── prompts.yaml                 # AI prompt configuration
+├── .env.example                 # Environment configuration template
 ├── docker-compose.yml           # Docker configuration
 ├── Dockerfile                   # Docker image definition
 └── README.md                    # This file

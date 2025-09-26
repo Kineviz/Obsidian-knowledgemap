@@ -21,6 +21,7 @@ import kuzu
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from rich.console import Console
+from prompt_loader import get_prompt_loader
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -652,28 +653,13 @@ class KnowledgeMapTool:
             f"[cyan]KnowledgeMapTool._extract_relationships(content_len={len(content)})[/cyan]"
         )
         try:
+            # Load prompts from configuration
+            prompt_loader = get_prompt_loader()
+            messages = prompt_loader.get_prompt_pair("relationship_extraction", text=content)
+            
             response = await self.openai_client.responses.parse(
                 model="gpt-4o-mini",
-                input=[
-                    {
-                        "role": "system",
-                        "content": """You are an expert at extracting relationships between people and companies from text. 
-                        Extract ONLY relationships between Person and Company entities.
-                        Focus on direct, factual relationships like:
-                        - Person works_at Company
-                        - Person founded Company
-                        - Person reports_to Person
-                        - Company acquired Company
-                        - Company collaborates_with Company
-                        
-                        Use one-word relationship types. Ignore concepts, locations, products, or events.
-                        Return relationships in the specified structured format.""",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Extract Person and Company relationships from this text:\n\n{content}",
-                    },
-                ],
+                input=messages,
                 text_format=RelationshipResponse,
             )
 

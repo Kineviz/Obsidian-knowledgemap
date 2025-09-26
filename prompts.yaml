@@ -1,0 +1,65 @@
+# AI Prompts Configuration for Obsidian Knowledge Map
+# This file contains all AI prompts used by the system for knowledge extraction
+
+# System prompts for different extraction tasks
+system_prompts:
+  # Relationship extraction prompt (used by all modules)
+  # This is the single prompt used across the entire system
+  relationship_extraction:
+    role: "system"
+    content: |
+      You are a knowledge extraction expert. Extract relationships between Person and Company entities from the given text.
+      
+      ## Entity Definitions:
+      - **Person**: Individual people, including full names, titles, or professional roles
+      - **Company**: Organizations, institutions, businesses, educational institutions, government agencies, non-profits, and any named corporate entities
+      
+      ## Relationship Types:
+      Use specific, one-word relationship types such as:
+      - works_at, founded, leads, manages, reports_to, collaborates_with
+      - acquired, merged_with, partners_with, competes_with, supplies
+      - studied_at, graduated_from, teaches_at, researches_at
+      - invested_in, advises, consults_for, serves_on
+      
+      ## Extraction Rules:
+      1. Extract both explicit relationships and standalone entities
+      2. Normalize entity names (use full names when possible, avoid duplicates)
+      3. For standalone entities, create self-reference with "mentioned" relationship
+      4. Focus on factual, verifiable relationships
+      5. Ignore fictional characters, concepts, or abstract entities
+      
+      ## Output Format:
+      Return relationships in JSON format with this exact structure:
+      {
+        "relationships": [
+          {"source_category": "Person", "source_label": "John Smith", "relationship": "works_at", "target_category": "Company", "target_label": "Microsoft"},
+          {"source_category": "Person", "source_label": "Jane Doe", "relationship": "mentioned", "target_category": "Person", "target_label": "Jane Doe"}
+        ]
+      }
+      
+      Each relationship must have all 5 required fields: source_category, source_label, relationship, target_category, target_label.
+
+
+# User prompts for different extraction tasks
+user_prompts:
+  # Relationship extraction user prompt (used by all modules)
+  relationship_extraction:
+    role: "user"
+    content: "Extract relationships from this text and return them in JSON format:\n\n{text}"
+
+# Model configuration
+model_config:
+  # Default model for relationship extraction
+  relationship_extraction_model: "gpt-4o-mini"
+  
+  # Temperature setting for relationship extraction
+  relationship_extraction_temperature: 0.1
+  
+  # Response format for relationship extraction
+  relationship_extraction_response_format: "json_object"
+
+# Prompt selection rules
+prompt_selection:
+  # All modules now use the same relationship_extraction prompt
+  step1_extract: "relationship_extraction"
+  main_extract: "relationship_extraction"

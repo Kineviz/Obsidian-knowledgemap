@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from rich.console import Console
+from prompt_loader import get_prompt_loader
 
 # Load environment variables
 load_dotenv()
@@ -147,8 +148,23 @@ class Step1Extractor:
         """Calculate hash of metadata section only"""
         frontmatter, _ = self._parse_frontmatter(content)
         import json
-        metadata_str = json.dumps(frontmatter, sort_keys=True)
+        # Convert non-serializable objects to strings for JSON serialization
+        serializable_frontmatter = self._make_serializable(frontmatter)
+        metadata_str = json.dumps(serializable_frontmatter, sort_keys=True)
         return hashlib.sha256(metadata_str.encode('utf-8')).hexdigest()
+    
+    def _make_serializable(self, obj: Any) -> Any:
+        """Convert non-serializable objects to strings for JSON serialization."""
+        if isinstance(obj, dict):
+            return {key: self._make_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_serializable(item) for item in obj]
+        elif hasattr(obj, 'isoformat'):  # datetime objects
+            return obj.isoformat()
+        elif hasattr(obj, '__str__') and not isinstance(obj, (str, int, float, bool, type(None))):
+            return str(obj)
+        else:
+            return obj
 
     def _find_existing_csv(self, file_path: Path) -> Optional[Path]:
         """Find existing CSV file for this content hash"""
@@ -178,20 +194,16 @@ class Step1Extractor:
             return []
 
         try:
+            # Load prompts from configuration
+            prompt_loader = get_prompt_loader()
+            messages = prompt_loader.get_prompt_pair("relationship_extraction", text=text)
+            model_config = prompt_loader.get_model_config("relationship_extraction")
+            
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a knowledge extraction expert. Extract relationships between Person and Company entities from the given text. Also extract standalone Person and Company entities that are mentioned but don't have explicit relationships with other entities. Include educational institutions, organizations, and any named entities as Company entities. For standalone entities, create a self-reference relationship with \"mentioned\" as the relationship type. Return relationships in JSON format with this exact structure: {\"relationships\": [{\"source_category\": \"Person\", \"source_label\": \"entity_name\", \"relationship\": \"relationship_type\", \"target_category\": \"Company\", \"target_label\": \"entity_name\"}]}. Each relationship must have all 5 required fields: source_category, source_label, relationship, target_category, target_label. For standalone entities, use \"mentioned\" as the relationship and the same entity as both source and target.",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Extract relationships from this text and return them in JSON format:\n\n{text}",
-                    },
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1,
+                model=model_config["model"],
+                messages=messages,
+                response_format={"type": model_config["response_format"]},
+                temperature=model_config["temperature"],
             )
 
             result = RelationshipResponse.model_validate_json(
