@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from rich.console import Console
+from obsidian_config_reader import ObsidianConfigReader
 
 console = Console()
 
@@ -68,8 +69,21 @@ class FileTracker:
         # Ensure database directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
+        # Initialize Obsidian config reader for template exclusion
+        self.obsidian_config = ObsidianConfigReader(vault_path)
+        self.template_folder = self._get_template_folder()
+        
         # Initialize database
         self._init_database()
+    
+    def _get_template_folder(self) -> Optional[str]:
+        """Get template folder path from Obsidian configuration"""
+        if self.obsidian_config.is_templates_enabled():
+            template_folder = self.obsidian_config.get_template_folder()
+            if template_folder:
+                console.print(f"[cyan]Templates enabled, excluding folder: {template_folder}[/cyan]")
+            return template_folder
+        return None
     
     def _init_database(self):
         """Initialize the SQLite database with required tables"""
@@ -154,8 +168,22 @@ class FileTracker:
         # Get all markdown files in vault
         vault_files = set()
         for md_file in self.vault_path.rglob("*.md"):
-            if not any(part.startswith('.') for part in md_file.relative_to(self.vault_path).parts):
-                vault_files.add(md_file)
+            # Skip files in hidden directories
+            if any(part.startswith('.') for part in md_file.relative_to(self.vault_path).parts):
+                continue
+            
+            # Skip files in template folder if templates are enabled
+            if self.template_folder:
+                try:
+                    relative_path = md_file.relative_to(self.vault_path)
+                    if str(relative_path).startswith(self.template_folder + "/"):
+                        console.print(f"[yellow]Skipping template file: {relative_path}[/yellow]")
+                        continue
+                except ValueError:
+                    # File is not relative to vault path, skip it
+                    continue
+            
+            vault_files.add(md_file)
         
         # Get current database state
         with sqlite3.connect(self.db_path) as conn:

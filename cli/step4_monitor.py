@@ -287,6 +287,11 @@ class VaultMonitor:
     async def process_single_file(self, file_path: Path):
         """Process a single markdown file"""
         try:
+            # Check if file should be processed first
+            if not self.should_process_file(file_path):
+                console.print(f"[yellow]Skipping file: {file_path.name}[/yellow]")
+                return
+            
             # Import here to avoid circular imports
             from step1_extract import Step1Extractor
             

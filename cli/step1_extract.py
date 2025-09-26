@@ -262,6 +262,20 @@ class Step1Extractor:
 
     async def _process_file(self, file_path: Path) -> None:
         """Process a single markdown file with metadata/content separation"""
+        # Check if file should be processed (template exclusion)
+        try:
+            relative_path = file_path.relative_to(self.vault_path)
+            
+            # Skip files in template folder if templates are enabled
+            if self.template_folder:
+                if str(relative_path).startswith(self.template_folder + "/"):
+                    console.print(f"[yellow]Skipping template file: {relative_path}[/yellow]")
+                    return
+        except ValueError:
+            # File is not relative to vault path, skip it
+            console.print(f"[yellow]Skipping file outside vault: {file_path}[/yellow]")
+            return
+        
         console.print(f"[cyan]Processing {file_path}[/cyan]")
         
         try:
