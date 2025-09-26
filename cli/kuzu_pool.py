@@ -80,6 +80,10 @@ class DatabaseAvailabilityChecker:
                 
             # Try to open a test connection
             if self._test_database_connection():
+                # Database is available - check if it was previously locked
+                if self.cached_state == DatabaseState.LOCKED:
+                    print("✅ DATABASE AVAILABLE - Lock has been released!")
+                    console.print("[green]Database available after lock release[/green]")
                 self.cached_state = DatabaseState.AVAILABLE
                 self.last_check = current_time
                 return True
@@ -102,12 +106,24 @@ class DatabaseAvailabilityChecker:
                 f"{self.db_path}.shm.lock"
             ]
             
+            locked_files = []
             for lock_file in lock_files:
                 if os.path.exists(lock_file):
-                    return True
-                    
-            return False
+                    locked_files.append(lock_file)
             
+            if locked_files:
+                print(f"🔒 DATABASE LOCKED by: {', '.join(locked_files)}")
+                console.print(f"[yellow]Database locked by: {', '.join(locked_files)}[/yellow]")
+                self._was_locked = True
+                return True
+            else:
+                # Check if database was previously locked and is now released
+                if hasattr(self, '_was_locked') and self._was_locked:
+                    print("🔓 DB RELEASED - Database is now available!")
+                    console.print("[green]DB released[/green]")
+                    self._was_locked = False
+                return False
+                    
         except Exception:
             return False
             
@@ -160,6 +176,7 @@ class KuzuConnectionPool:
         self.lock = asyncio.Lock()
         self.health_check_task = None
         self.is_running = False
+        self._was_locked = False  # Track if database was previously locked
         
     async def start(self) -> bool:
         """Start the connection pool"""
