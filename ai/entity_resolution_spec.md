@@ -19,7 +19,10 @@ The system will look for entity resolution patterns in YAML frontmatter at the t
 
 ```markdown
 ---
-resolves: John => John Heimann, Paco => Paco Gomaz, Mary1 => Mary
+resolves:
+  - John -> John Heimann
+  - Paco -> Paco Gomaz
+  - Mary1 -> Mary
 ---
 
 # My Knowledge Base
@@ -34,10 +37,10 @@ For better readability with many resolutions:
 ```markdown
 ---
 resolves: |
-  John => John Heimann
-  Paco => Paco Gomaz
-  Mary1 => Mary
-  Company A => Acme Corporation
+  John -> John Heimann
+  Paco -> Paco Gomaz
+  Mary1 -> Mary
+  Company A -> Acme Corporation
 ---
 
 # My Knowledge Base
@@ -48,7 +51,7 @@ Content here...
 ### Pattern Rules
 
 - **YAML Key**: Use `resolves:` key (shorter than `entity_resolution`)
-- **Arrow Format**: Use `=>` to separate old name from new name
+- **Arrow Format**: Use `->` to separate old name from new name (also supports `=>` for backward compatibility)
 - **Comma Separated**: Multiple resolutions separated by commas
 - **No Quotes Required**: Names don't need quotes unless they contain special characters
 - **Case Sensitive**: Matching is case-sensitive by default
@@ -70,7 +73,7 @@ Content here...
 **YAML Parsing**:
 - Use PyYAML to parse frontmatter
 - Look for `resolves` key in YAML
-- Parse arrow-separated format: `old => new`
+- Parse arrow-separated format: `old -> new` (supports both `->` and `=>`)
 - Split by commas for multiple resolutions
 - Handle both single-line and multi-line formats
 
@@ -231,7 +234,9 @@ ENTITY_RESOLUTION_CONFIG = {
 ```markdown
 ---
 title: "Project Alpha Documentation"
-resolves: John Smith => John A. Smith, Acme Corp => Acme Corporation
+resolves:
+  - John Smith -> John A. Smith
+  - Acme Corp -> Acme Corporation
 ---
 
 # Project Alpha
@@ -244,7 +249,9 @@ John Smith works at Acme Corp on Project Alpha.
 ```markdown
 ---
 title: "Project Beta Documentation"
-resolves: John Smith => John B. Smith, Acme Corp => Acme Industries
+resolves:
+  - John Smith -> John B. Smith
+  - Acme Corp -> Acme Industries
 ---
 
 # Project Beta

@@ -155,16 +155,18 @@ class EntityResolver:
         
         1. List format (with dashes):
            resolves:
-             - Old Name => New Name
-             - Another Old => Another New
+             - Old Name -> New Name
+             - Another Old -> Another New
         
         2. Comma-separated format:
-           resolves: Old Name => New Name, Another Old => Another New
+           resolves: Old Name -> New Name, Another Old -> Another New
         
         3. Multi-line string format:
            resolves: |
-             Old Name => New Name
-             Another Old => Another New
+             Old Name -> New Name
+             Another Old -> Another New
+        
+        Note: Both -> and => are supported for backward compatibility.
         
         Args:
             resolves_data: String or list containing entity resolutions
@@ -177,7 +179,7 @@ class EntityResolver:
         # Handle list format (YAML array with dashes)
         if isinstance(resolves_data, list):
             for item in resolves_data:
-                if isinstance(item, str) and '=>' in item:
+                if isinstance(item, str) and ('->' in item or '=>' in item):
                     old_name, new_name = self._parse_resolution_line(item)
                     if old_name and new_name:
                         mappings[old_name] = new_name
@@ -189,7 +191,7 @@ class EntityResolver:
                 lines = resolves_data.strip().split('\n')
                 for line in lines:
                     line = line.strip()
-                    if line and '=>' in line:
+                    if line and ('->' in line or '=>' in line):
                         old_name, new_name = self._parse_resolution_line(line)
                         if old_name and new_name:
                             mappings[old_name] = new_name
@@ -198,7 +200,7 @@ class EntityResolver:
             else:
                 resolutions = [r.strip() for r in resolves_data.split(',')]
                 for resolution in resolutions:
-                    if resolution and '=>' in resolution:
+                    if resolution and ('->' in resolution or '=>' in resolution):
                         old_name, new_name = self._parse_resolution_line(resolution)
                         if old_name and new_name:
                             mappings[old_name] = new_name
@@ -210,15 +212,20 @@ class EntityResolver:
         Parse a single resolution line.
         
         Args:
-            line: Line containing one resolution (e.g., "John => John Heimann")
+            line: Line containing one resolution (e.g., "John -> John Heimann" or "John => John Heimann")
             
         Returns:
             Tuple of (old_name, new_name)
         """
-        if '=>' not in line:
+        # Check for both -> and => formats
+        if '->' in line:
+            separator = '->'
+        elif '=>' in line:
+            separator = '=>'
+        else:
             return "", ""
         
-        parts = line.split('=>', 1)
+        parts = line.split(separator, 1)
         if len(parts) != 2:
             return "", ""
         
