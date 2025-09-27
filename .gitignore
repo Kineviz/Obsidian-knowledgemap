@@ -7,5 +7,12 @@ cache/
 __pycache__/
 *.log
 
+# LLM Configuration (contains API keys)
+llm_config.yaml
+
+# Test database files (large and generated)
+test_*.kz
+*.test.kz
+
 # Distribution packages
 kineviz-obsidian-base-*
