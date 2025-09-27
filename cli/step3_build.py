@@ -27,6 +27,11 @@ class Step3Builder:
     def __init__(self, vault_path: Path, db_path: str):
         self.vault_path = vault_path
         self.db_path = db_path
+        
+        # Ensure parent directory exists
+        db_dir = os.path.dirname(db_path)
+        os.makedirs(db_dir, exist_ok=True)
+        
         self.db = kuzu.Database(db_path)
         self.conn = kuzu.Connection(self.db)
         
@@ -35,6 +40,29 @@ class Step3Builder:
         self.template_folder = self._get_template_folder()
         
         self._init_schema()
+    
+    def cleanup(self):
+        """Clean up database connections"""
+        try:
+            if hasattr(self, 'conn') and self.conn:
+                self.conn.close()
+                self.conn = None
+        except Exception as e:
+            print(f"Warning: Error closing connection: {e}")
+        
+        try:
+            if hasattr(self, 'db') and self.db:
+                # Kuzu Database doesn't have a close method, but we can set it to None
+                self.db = None
+        except Exception as e:
+            print(f"Warning: Error cleaning up database: {e}")
+    
+    def __del__(self):
+        """Destructor to ensure cleanup"""
+        try:
+            self.cleanup()
+        except Exception:
+            pass  # Ignore errors in destructor
     
     def _get_template_folder(self) -> Optional[str]:
         """Get template folder path from Obsidian configuration"""

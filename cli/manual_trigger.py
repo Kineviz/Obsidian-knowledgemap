@@ -123,7 +123,6 @@ class ManualTrigger:
         # Create extractor instance
         extractor = Step1Extractor(
             vault_path=self.vault_path,
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
             chunking_backend="recursive-markdown",
             chunk_threshold=0.75,
             chunk_size=1024,
@@ -310,17 +309,26 @@ class ManualTrigger:
                 # Fallback to in-process build
                 console.print("[yellow]Falling back to in-process build...[/yellow]")
                 builder = Step3Builder(self.vault_path, db_path)
-                builder.build_database()
+                try:
+                    builder.build_database()
+                finally:
+                    builder.cleanup()
                 
         except subprocess.TimeoutExpired:
             console.print("[red]Database build timed out, falling back to in-process build...[/red]")
             builder = Step3Builder(self.vault_path, db_path)
-            builder.build_database()
+            try:
+                builder.build_database()
+            finally:
+                builder.cleanup()
         except Exception as e:
             console.print(f"[red]Error building database in separate process: {e}[/red]")
             console.print("[yellow]Falling back to in-process build...[/yellow]")
             builder = Step3Builder(self.vault_path, db_path)
-            builder.build_database()
+            try:
+                builder.build_database()
+            finally:
+                builder.cleanup()
         
         # Restart Kuzu server after building database
         if self.server_manager:

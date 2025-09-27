@@ -298,7 +298,6 @@ class VaultMonitor:
             # Create extractor instance
             extractor = Step1Extractor(
                 vault_path=self.vault_path,
-                openai_api_key=os.getenv("OPENAI_API_KEY"),
                 chunking_backend="recursive-markdown",
                 chunk_threshold=0.75,
                 chunk_size=1024,
@@ -371,8 +370,11 @@ class VaultMonitor:
                 console.print("[yellow]Cleared existing database[/yellow]")
             
             builder = Step3Builder(self.vault_path, db_path)
-            builder.build_database()
-            console.print("[green]Database rebuilt[/green]")
+            try:
+                builder.build_database()
+                console.print("[green]Database rebuilt[/green]")
+            finally:
+                builder.cleanup()
             
             # Restart Kuzu server after database rebuild
             console.print("[cyan]Restarting Kuzu server...[/cyan]")
@@ -484,16 +486,53 @@ class VaultMonitor:
         console.print("[cyan]Running startup validation using manual trigger...[/cyan]")
         
         try:
-            # Create a manual trigger without server management for validation
-            from manual_trigger import ManualTrigger
-            validation_trigger = ManualTrigger(self.vault_path, None)  # No server manager
+            # Check if database exists, if not, run full build process
+            db_path = self.vault_path / ".kineviz_graph" / "database" / "knowledge_graph.kz"
+            if not db_path.exists():
+                console.print("[yellow]Database not found, running full build process...[/yellow]")
+                self._run_full_build_process()
+            else:
+                console.print("[green]Database found, running incremental processing...[/green]")
+                # Create a manual trigger without server management for validation
+                from manual_trigger import ManualTrigger
+                validation_trigger = ManualTrigger(self.vault_path, None)  # No server manager
+                
+                # Run the full cycle without server management
+                validation_trigger.run_full_cycle()
             
-            # Run the full cycle without server management
-            validation_trigger.run_full_cycle()
             console.print("[green]Startup validation completed[/green]")
                 
         except Exception as e:
             console.print(f"[red]Error during startup validation: {e}[/red]")
+    
+    def _run_full_build_process(self):
+        """Run the complete build process from scratch"""
+        console.print("[cyan]Running full build process...[/cyan]")
+        
+        # Step 1: Extract relationships
+        console.print("[cyan]Step 1: Extracting relationships...[/cyan]")
+        from step1_extract import Step1Extractor
+        extractor = Step1Extractor(self.vault_path)
+        asyncio.run(extractor.process_vault())
+        
+        # Step 2: Organize cache
+        console.print("[cyan]Step 2: Organizing cache...[/cyan]")
+        from step2_organize import Step2Organizer
+        organizer = Step2Organizer(self.vault_path)
+        organizer.organize_cache()
+        
+        # Step 3: Build database
+        console.print("[cyan]Step 3: Building database...[/cyan]")
+        from step3_build import Step3Builder
+        db_path = str(self.vault_path / ".kineviz_graph" / "database" / "knowledge_graph.kz")
+        builder = Step3Builder(self.vault_path, db_path)
+        try:
+            builder.build_database()
+        finally:
+            # Ensure database connections are closed
+            builder.cleanup()
+        
+        console.print("[green]Full build process completed[/green]")
     
     def handle_file_move_sync(self, old_path: Path, new_path: Path):
         """Handle file moves by updating paths in cache and database"""

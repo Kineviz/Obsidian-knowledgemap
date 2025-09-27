@@ -97,25 +97,30 @@ class DatabaseAvailabilityChecker:
             return False
             
     def _is_database_locked(self) -> bool:
-        """Check if database is locked by another process"""
+        """Check if database is locked by another process (excluding current process)"""
         try:
-            # Check for lock files (Kuzu creates .lock files)
-            lock_files = [
-                f"{self.db_path}.lock",
-                f"{self.db_path}.wal.lock",
-                f"{self.db_path}.shm.lock"
-            ]
-            
-            locked_files = []
-            for lock_file in lock_files:
-                if os.path.exists(lock_file):
-                    locked_files.append(lock_file)
-            
-            if locked_files:
-                print(f"🔒 DATABASE LOCKED by: {', '.join(locked_files)}")
-                console.print(f"[yellow]Database locked by: {', '.join(locked_files)}[/yellow]")
-                self._was_locked = True
-                return True
+            # Check if any process has the database file open
+            import subprocess
+            import os
+            result = subprocess.run(['lsof', self.db_path], capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                # Parse the output to check for processes other than current one
+                current_pid = str(os.getpid())
+                lines = result.stdout.strip().split('\n')
+                other_processes = []
+                
+                for line in lines[1:]:  # Skip header line
+                    if current_pid not in line:
+                        other_processes.append(line.strip())
+                
+                if other_processes:
+                    print(f"🔒 DATABASE LOCKED by other processes: {other_processes}")
+                    console.print(f"[yellow]Database locked by other processes[/yellow]")
+                    self._was_locked = True
+                    return True
+                else:
+                    # Only current process has the database open, which is fine
+                    return False
             else:
                 # Check if database was previously locked and is now released
                 if hasattr(self, '_was_locked') and self._was_locked:
@@ -186,6 +191,9 @@ class KuzuConnectionPool:
         if not await self.availability_checker.wait_for_database():
             console.print("[red]Failed to start pool: Database not available[/red]")
             return False
+            
+        # Small delay to allow server to fully initialize
+        await asyncio.sleep(1)
             
         # Create initial connections
         await self._create_initial_connections()

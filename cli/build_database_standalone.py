@@ -23,6 +23,7 @@ def main():
     vault_path = Path(args.vault_path)
     db_path = args.db_path
     
+    builder = None
     try:
         builder = Step3Builder(vault_path, db_path)
         builder.build_database()
@@ -31,6 +32,9 @@ def main():
     except Exception as e:
         print(f"Database build failed: {e}", file=sys.stderr)
         return 1
+    finally:
+        if builder:
+            builder.cleanup()
 
 if __name__ == "__main__":
     sys.exit(main())
