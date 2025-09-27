@@ -285,27 +285,19 @@ class VaultMonitor:
         self.is_processing = False
         
     async def process_single_file(self, file_path: Path):
-        """Process a single markdown file"""
+        """Process a single markdown file with full pipeline including metadata extraction"""
         try:
             # Check if file should be processed first
             if not self.should_process_file(file_path):
                 console.print(f"[yellow]Skipping file: {file_path.name}[/yellow]")
                 return
             
-            # Import here to avoid circular imports
-            from step1_extract import Step1Extractor
+            console.print(f"[cyan]Processing single file: {file_path.name}[/cyan]")
             
-            # Create extractor instance
-            extractor = Step1Extractor(
-                vault_path=self.vault_path,
-                chunking_backend="recursive-markdown",
-                chunk_threshold=0.75,
-                chunk_size=1024,
-                embedding_model="minishlab/potion-base-8M",
-            )
+            # Use manual trigger to run the full processing pipeline
+            # This ensures metadata extraction and all other steps are included
+            self.manual_trigger.run_full_cycle()
             
-            # Process the single file
-            await extractor._process_file(file_path)
             console.print(f"[green]Processed: {file_path.name}[/green]")
             
         except Exception as e:
