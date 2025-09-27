@@ -14,11 +14,11 @@ from typing import List, Optional, Dict, Any, Tuple
 
 import click
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from rich.console import Console
 from prompt_loader import get_prompt_loader
 from obsidian_config_reader import ObsidianConfigReader
+from llm_client import get_llm_client, close_llm_client
 
 # Load environment variables
 load_dotenv()
@@ -46,14 +46,12 @@ class Step1Extractor:
     def __init__(
         self,
         vault_path: Path,
-        openai_api_key: Optional[str] = None,
         chunking_backend: str = "recursive-markdown",
         chunk_threshold: float = 0.75,
         chunk_size: int = 1024,
         embedding_model: str = "minishlab/potion-base-8M",
     ):
         self.vault_path = vault_path
-        self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
         self.chunking_backend = chunking_backend
         self.chunk_threshold = chunk_threshold
         self.chunk_size = chunk_size
@@ -63,11 +61,8 @@ class Step1Extractor:
         self.obsidian_config = ObsidianConfigReader(vault_path)
         self.template_folder = self._get_template_folder()
         
-        # Initialize OpenAI client
-        if self.openai_api_key:
-            self.client = AsyncOpenAI(api_key=self.openai_api_key)
-        else:
-            self.client = None
+        # LLM client will be initialized when needed
+        self.llm_client = None
             
         # Initialize chunker
         self._init_chunker()
@@ -202,27 +197,31 @@ class Step1Extractor:
         return None
 
     async def _extract_relationships_from_text(self, text: str, source_file: str) -> List[Relationship]:
-        """Extract relationships from text using OpenAI"""
-        if not self.client:
-            console.print("[yellow]No OpenAI client available, skipping extraction[/yellow]")
-            return []
-
+        """Extract relationships from text using LLM client"""
         try:
+            # Initialize LLM client if not already done
+            if not self.llm_client:
+                self.llm_client = await get_llm_client()
+            
             # Load prompts from configuration
             prompt_loader = get_prompt_loader()
             messages = prompt_loader.get_prompt_pair("relationship_extraction", text=text)
             model_config = prompt_loader.get_model_config("relationship_extraction")
             
-            response = await self.client.chat.completions.create(
-                model=model_config["model"],
+            # Generate response using LLM client
+            response = await self.llm_client.generate(
                 messages=messages,
-                response_format={"type": model_config["response_format"]},
                 temperature=model_config["temperature"],
+                max_tokens=2000
             )
+            
+            if not response.success:
+                console.print(f"[red]LLM generation failed: {response.error}[/red]")
+                return []
 
-            result = RelationshipResponse.model_validate_json(
-                response.choices[0].message.content
-            )
+            # Clean and parse JSON response
+            cleaned_json = self._clean_json_response(response.content)
+            result = RelationshipResponse.model_validate_json(cleaned_json)
             
             # Add source file info to each relationship
             for rel in result.relationships:
@@ -234,6 +233,33 @@ class Step1Extractor:
         except Exception as e:
             console.print(f"[red]Error extracting relationships: {e}[/red]")
             return []
+    
+    def _clean_json_response(self, content: str) -> str:
+        """Clean LLM response to extract valid JSON"""
+        # Remove markdown code blocks
+        if "```json" in content:
+            start = content.find("```json") + 7
+            end = content.find("```", start)
+            if end != -1:
+                content = content[start:end].strip()
+        elif "```" in content:
+            start = content.find("```") + 3
+            end = content.find("```", start)
+            if end != -1:
+                content = content[start:end].strip()
+        
+        # Remove any leading/trailing whitespace and newlines
+        content = content.strip()
+        
+        # If content starts with newline or other characters, try to find JSON object
+        if content.startswith('\n') or content.startswith('}'):
+            # Try to find the first { and last }
+            start = content.find('{')
+            end = content.rfind('}')
+            if start != -1 and end != -1 and end > start:
+                content = content[start:end+1]
+        
+        return content
 
     def _save_relationships_to_csv(self, file_path: Path, relationships: List[Relationship]) -> str:
         """Save relationships to CSV file with content hash (excluding metadata)"""
@@ -372,7 +398,6 @@ class Step1Extractor:
 @click.option("--vault-path", type=click.Path(exists=True, file_okay=False, path_type=Path), 
               default=lambda: os.getenv("VAULT_PATH"), 
               help="Path to Obsidian vault (default: VAULT_PATH env var)")
-@click.option("--openai-api-key", help="OpenAI API key (or set OPENAI_API_KEY env var)")
 @click.option("--max-concurrent", default=lambda: int(os.getenv("MAX_CONCURRENT", "5")), 
               type=int,
               help="Maximum number of concurrent file processing tasks (default: MAX_CONCURRENT env var or 5)")
@@ -382,7 +407,6 @@ class Step1Extractor:
 @click.option("--chunking-backend", default="recursive-markdown", help="Chunking backend to use")
 def main(
     vault_path: Path,
-    openai_api_key: Optional[str],
     max_concurrent: int,
     chunk_threshold: float,
     chunk_size: int,
@@ -398,17 +422,9 @@ def main(
         console.print("[yellow]Or set VAULT_PATH in your .env file[/yellow]")
         sys.exit(1)
     
-    # Only require OpenAI API key if extraction is enabled
-    if not openai_api_key and not os.getenv("OPENAI_API_KEY"):
-        console.print(
-            "[red]Error: OpenAI API key required. Set OPENAI_API_KEY env var or use --openai-api-key[/red]"
-        )
-        sys.exit(1)
-
     try:
         extractor = Step1Extractor(
             vault_path=vault_path,
-            openai_api_key=openai_api_key,
             chunking_backend=chunking_backend,
             chunk_threshold=chunk_threshold,
             chunk_size=chunk_size,

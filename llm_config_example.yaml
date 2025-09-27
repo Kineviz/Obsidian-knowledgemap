@@ -1,0 +1,59 @@
+# LLM Configuration Example
+# Copy this file to llm_config.yaml and customize for your setup
+
+# Provider selection: 'cloud' or 'ollama'
+provider: ollama
+
+# Cloud configuration (when provider = 'cloud')
+cloud:
+  openai:
+    api_key: "your_openai_api_key_here"  # Set via OPENAI_API_KEY env var
+    model: "gpt-4o-mini"
+    timeout: 60
+
+# Ollama configuration (when provider = 'ollama')
+ollama:
+  # List of Ollama servers - much easier to manage than comma-separated strings!
+  servers:
+    - name: "local"
+      url: "http://localhost:11434"
+      enabled: true
+      priority: 1
+    
+    - name: "mac-studio"
+      url: "http://mac-studio:11434"
+      enabled: true
+      priority: 2
+    
+    - name: "m1max"
+      url: "http://m1max:11434"
+      enabled: true
+      priority: 3
+    
+    # Add more servers as needed
+    - name: "gpu-server"
+      url: "http://gpu-server:11434"
+      enabled: false
+      priority: 5
+  
+  # Model configuration
+  model: "gemma3:12b"
+  timeout: 60
+  max_retries: 3
+  retry_delay: 5
+  
+  # Load balancing strategy
+  load_balance_strategy: "round_robin"  # round_robin, random, least_connections, fastest_response
+  
+  # Health check configuration
+  health_check:
+    interval: 30  # seconds
+    timeout: 10   # seconds
+    server_timeout: 300  # seconds
+
+# Global settings
+global:
+  max_concurrent: 5
+  chunk_threshold: 0.75
+  chunk_size: 1024
+  embedding_model: "minishlab/potion-base-8M"
