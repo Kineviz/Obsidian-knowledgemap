@@ -27,6 +27,9 @@ A powerful CLI tool that transforms your Obsidian vault into an intelligent know
 - [API Reference](#-api-reference)
 - [Database Schema](#-database-schema)
 - [Configuration](#-configuration)
+  - [Environment Variables](#environment-variables-env-file)
+  - [AI Prompt Configuration](#ai-prompt-configuration)
+  - [LLM Configuration](#llm-configuration-llm_configyaml)
 - [Docker Support](#-docker-support)
 - [Contributing](#-contributing)
 - [License](#-license)
@@ -63,6 +66,16 @@ nano .env  # or use your preferred editor
 # In .env file
 OPENAI_API_KEY=your_openai_api_key_here
 VAULT_PATH=/path/to/your/obsidian/vault
+```
+
+**LLM Configuration (Optional):**
+For advanced LLM configuration with load balancing and local models:
+```bash
+# Copy LLM configuration template
+cp llm_config_example.yaml llm_config.yaml
+
+# Edit LLM configuration (supports OpenAI and Ollama)
+nano llm_config.yaml
 ```
 
 **Optional Configuration:**
@@ -349,6 +362,79 @@ model_config:
 
 **Available Prompt Types:**
 - `relationship_extraction`: Single prompt used by all modules (step1_extract.py, main.py, step4_monitor.py)
+
+### LLM Configuration (llm_config.yaml)
+
+The system supports flexible LLM configuration through `llm_config.yaml` for both cloud and local Ollama deployments:
+
+```yaml
+# Provider selection: "cloud" or "ollama"
+provider: "cloud"  # or "ollama"
+
+# Cloud configuration (OpenAI)
+cloud:
+  openai:
+    api_key: "your_openai_api_key_here"
+    model: "gpt-4o-mini"
+    timeout: 60
+
+# Ollama configuration (local models)
+ollama:
+  model: "gemma3:12b"
+  timeout: 60
+  max_retries: 3
+  retry_delay: 5
+  load_balance_strategy: "round_robin"  # round_robin, random, least_connections, fastest_response
+  health_check:
+    interval: 30
+    timeout: 10
+  servers:
+    - name: "local"
+      url: "http://localhost:11434"
+      enabled: true
+      priority: 1
+    - name: "remote-server"
+      url: "http://remote-server:11434"
+      enabled: true
+      priority: 2
+
+# Global settings
+global:
+  chunk_size: 1024
+  chunk_threshold: 0.75
+  embedding_model: "minishlab/potion-base-8M"
+  max_concurrent: 5
+```
+
+**Configuration Management:**
+```bash
+# Create configuration from example
+cp llm_config_example.yaml llm_config.yaml
+
+# Edit configuration
+nano llm_config.yaml
+
+# Validate configuration
+uv run manage_llm_config.py validate
+
+# Test configuration
+uv run manage_llm_config.py test
+```
+
+**LLM Provider Options:**
+- **Cloud (OpenAI)**: Use `provider: "cloud"` for OpenAI GPT models
+- **Ollama (Local)**: Use `provider: "ollama"` for local Ollama models with load balancing
+
+**Load Balancing Strategies:**
+- `round_robin`: Distribute requests evenly across servers
+- `random`: Randomly select available servers
+- `least_connections`: Use server with fewest active connections
+- `fastest_response`: Prefer servers with fastest response times
+
+**Health Monitoring:**
+- Automatic health checks for Ollama servers
+- Automatic failover when servers become unavailable
+- Background monitoring with configurable intervals
 
 ## 🐳 Docker Support
 
