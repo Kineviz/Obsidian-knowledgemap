@@ -1,0 +1,70 @@
+# Knowledge Graph Configuration Example
+# Copy this file to config.yaml and customize the settings for your environment
+
+# Vault Configuration
+vault:
+  path: "/path/to/your/obsidian/vault"  # Replace with your actual vault path
+  templates_enabled: true
+  template_folder: "_Templates"
+  exclude_hidden: true
+
+# LLM Configuration  
+llm:
+  provider: "cloud"  # "cloud" or "ollama"
+  cloud:
+    openai:
+      # API key will be loaded from .env file
+      model: "gpt-4o-mini"
+      timeout: 60
+  ollama:
+    model: "gemma3:12b"
+    timeout: 60
+    max_retries: 3
+    retry_delay: 5
+    load_balance_strategy: "round_robin"  # round_robin, random, least_connections, fastest_response
+    health_check:
+      interval: 30
+      server_timeout: 300
+      timeout: 10
+    servers:
+      - name: "local"
+        url: "http://localhost:11434"
+        enabled: true
+        priority: 1
+      - name: "remote-server"
+        url: "http://remote-server:11434"
+        enabled: false
+        priority: 2
+
+# Database Configuration
+database:
+  path: "auto-detect"  # Auto-detect from vault path, or specify custom path like "/path/to/database.kz"
+  port: 7001
+  max_connections: 5
+  health_check_interval: 60
+
+# Processing Configuration
+processing:
+  max_concurrent: 5
+  chunk_size: 1024
+  chunk_threshold: 0.75
+  embedding_model: "minishlab/potion-base-8M"
+  chunking_backend: "recursive-markdown"
+
+# Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 7001
+  debug: false
+  ssl:
+    enabled: false
+    cert_file: null
+    key_file: null
+
+# Environment Variable Overrides
+# You can also override any setting using environment variables:
+# - VAULT_PATH: Override vault.path
+# - LLM_PROVIDER: Override llm.provider
+# - DB_PORT: Override database.port
+# - SERVER_PORT: Override server.port
+# - OPENAI_API_KEY: Set in .env file (required for cloud provider)

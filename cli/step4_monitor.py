@@ -23,6 +23,7 @@ from kuzu_server_manager import KuzuServerManager
 from file_tracker import FileTracker, ChangeType
 from manual_trigger import ManualTrigger
 from obsidian_config_reader import ObsidianConfigReader
+from config_loader import ConfigLoader
 
 # Load environment variables
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -686,30 +687,38 @@ class VaultMonitor:
 
 @click.command()
 @click.option("--db-path", type=click.Path(exists=True, file_okay=True, path_type=Path), 
-              default=lambda: os.getenv("DB_PATH"), 
-              help="Path to Kuzu database file (default: auto-detect from VAULT_PATH env var)")
-@click.option("--max-concurrent", default=lambda: int(os.getenv("MAX_CONCURRENT", "5")), 
+              default=None, 
+              help="Path to Kuzu database file (default: auto-detect from config)")
+@click.option("--max-concurrent", default=None, 
               type=int,
-              help="Maximum number of concurrent file processing tasks (default: MAX_CONCURRENT env var or 5)")
-@click.option("--server-port", default=lambda: int(os.getenv("SERVER_PORT", "7001")), 
+              help="Maximum number of concurrent file processing tasks (default: from config)")
+@click.option("--server-port", default=None, 
               type=int,
-              help="Port for Kuzu Neo4j server (default: SERVER_PORT env var or 7001)")
+              help="Port for Kuzu Neo4j server (default: from config)")
 @click.option("--daemon", is_flag=True, help="Run as daemon (detached from terminal)")
 def main(db_path: Path, max_concurrent: int, server_port: int, daemon: bool):
     """Step 4: Monitor Obsidian vault for changes and auto-update knowledge graph"""
     
+    # Load configuration
+    config_loader = ConfigLoader()
+    
     # Auto-detect database path if not provided
     if not db_path:
-        vault_path_env = os.getenv("VAULT_PATH")
-        if vault_path_env:
-            vault_path = Path(vault_path_env)
-            db_path = vault_path / ".kineviz_graph" / "database" / "knowledge_graph.kz"
+        vault_path = config_loader.get_vault_path()
+        if vault_path:
+            db_path = Path(vault_path) / ".kineviz_graph" / "database" / "knowledge_graph.kz"
             console.print(f"[cyan]Auto-detected database path: {db_path}[/cyan]")
         else:
             console.print("[red]Error: Database path is required. Set DB_PATH environment variable or use --db-path[/red]")
             console.print("[yellow]Example: uv run step4_monitor.py --db-path '/path/to/vault/.kineviz_graph/database/knowledge_graph.kz'[/yellow]")
-            console.print("[yellow]Or set VAULT_PATH in your .env file for auto-detection[/yellow]")
+            console.print("[yellow]Or configure vault.path in config.yaml[/yellow]")
             sys.exit(1)
+    
+    # Use config values if command line options not provided
+    if max_concurrent is None:
+        max_concurrent = config_loader.get("processing.max_concurrent", 5)
+    if server_port is None:
+        server_port = config_loader.get("server.port", 7001)
     
     if not db_path.exists():
         console.print(f"[red]Error: Database path does not exist: {db_path}[/red]")

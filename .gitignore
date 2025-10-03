@@ -7,8 +7,8 @@ cache/
 __pycache__/
 *.log
 
-# LLM Configuration (contains API keys)
-llm_config.yaml
+#  Configuration 
+config.yaml
 
 # Test database files (large and generated)
 test_*.kz

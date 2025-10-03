@@ -17,7 +17,7 @@ from pathlib import Path
 import openai
 from dotenv import load_dotenv
 import os
-from llm_config_loader import get_config_loader, LLMConfig
+from config_loader import get_config_loader
 
 # Load environment variables
 load_dotenv()
@@ -63,19 +63,18 @@ class LLMClient:
     def __init__(self):
         # Load configuration
         self.config_loader = get_config_loader()
-        self.config = self.config_loader.get_config()
         
         # Validate configuration
         errors = self.config_loader.validate_config()
         if errors:
             raise ValueError(f"Configuration errors: {', '.join(errors)}")
         
-        self.provider = LLMProvider(self.config.provider)
+        self.provider = LLMProvider(self.config_loader.get('llm.provider', 'cloud'))
         self.openai_client = None
         self.ollama_servers: List[OllamaServer] = []
         self.current_server_index = 0
         self.load_balance_strategy = LoadBalanceStrategy(
-            self.config.ollama.load_balance_strategy if self.config.ollama else "round_robin"
+            self.config_loader.get('llm.ollama.load_balance_strategy', 'round_robin')
         )
         self.health_check_task = None
         self._initialize()
@@ -89,23 +88,26 @@ class LLMClient:
     
     def _initialize_openai(self):
         """Initialize OpenAI client"""
-        if not self.config.cloud or not self.config.cloud.openai_api_key:
+        api_key = self.config_loader.get_openai_api_key()
+        if not api_key:
             raise ValueError("OpenAI API key is required when LLM_PROVIDER=cloud")
         
-        self.openai_client = openai.AsyncOpenAI(api_key=self.config.cloud.openai_api_key)
-        logger.info(f"Initialized OpenAI client with model: {self.config.cloud.openai_model}")
+        self.openai_client = openai.AsyncOpenAI(api_key=api_key)
+        model = self.config_loader.get('llm.cloud.openai.model', 'gpt-4o-mini')
+        logger.info(f"Initialized OpenAI client with model: {model}")
     
     def _initialize_ollama(self):
         """Initialize Ollama servers"""
-        if not self.config.ollama:
+        servers_config = self.config_loader.get('llm.ollama.servers', [])
+        if not servers_config:
             raise ValueError("Ollama configuration is required when LLM_PROVIDER=ollama")
         
-        enabled_servers = self.config_loader.get_enabled_ollama_servers()
+        enabled_servers = [s for s in servers_config if s.get('enabled', True)]
         if not enabled_servers:
             raise ValueError("At least one Ollama server must be enabled")
         
-        self.ollama_servers = [OllamaServer(url=server.url) for server in enabled_servers]
-        server_names = [server.name for server in enabled_servers]
+        self.ollama_servers = [OllamaServer(url=server['url']) for server in enabled_servers]
+        server_names = [server['name'] for server in enabled_servers]
         logger.info(f"Initialized {len(self.ollama_servers)} Ollama servers: {server_names}")
         
         # Start health check task
@@ -113,11 +115,11 @@ class LLMClient:
     
     async def _health_check_loop(self):
         """Background health check for Ollama servers"""
-        if not self.config.ollama:
+        if self.provider != LLMProvider.OLLAMA:
             return
         
-        interval = self.config.ollama.health_check_interval
-        timeout = self.config.ollama.health_check_timeout
+        interval = self.config_loader.get('llm.ollama.health_check.interval', 30)
+        timeout = self.config_loader.get('llm.ollama.health_check.timeout', 10)
         
         while True:
             try:
@@ -190,8 +192,8 @@ class LLMClient:
         """Generate response using OpenAI"""
         try:
             start_time = time.time()
-            model = self.config.cloud.openai_model
-            timeout = self.config.cloud.openai_timeout
+            model = self.config_loader.get('llm.cloud.openai.model', 'gpt-4o-mini')
+            timeout = self.config_loader.get('llm.cloud.openai.timeout', 60)
             
             response = await self.openai_client.chat.completions.create(
                 model=model,
@@ -225,7 +227,7 @@ class LLMClient:
     
     async def _generate_ollama(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
         """Generate response using Ollama with failover"""
-        if not self.config.ollama:
+        if self.provider != LLMProvider.OLLAMA:
             return LLMResponse(
                 content="",
                 model="unknown",
@@ -234,8 +236,8 @@ class LLMClient:
                 error="Ollama configuration not available"
             )
         
-        max_retries = self.config.ollama.max_retries
-        retry_delay = self.config.ollama.retry_delay
+        max_retries = self.config_loader.get('llm.ollama.max_retries', 3)
+        retry_delay = self.config_loader.get('llm.ollama.retry_delay', 5)
         
         for attempt in range(max_retries):
             server = self._select_server()
@@ -284,8 +286,8 @@ class LLMClient:
             
             # Combine system and user messages for Ollama
             combined_prompt = self._combine_messages(messages)
-            model = self.config.ollama.model
-            timeout = self.config.ollama.timeout
+            model = self.config_loader.get('llm.ollama.model', 'gemma3:12b')
+            timeout = self.config_loader.get('llm.ollama.timeout', 60)
             
             payload = {
                 "model": model,

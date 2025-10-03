@@ -29,7 +29,7 @@ A powerful CLI tool that transforms your Obsidian vault into an intelligent know
 - [Configuration](#-configuration)
   - [Environment Variables](#environment-variables-env-file)
   - [AI Prompt Configuration](#ai-prompt-configuration)
-  - [LLM Configuration](#llm-configuration-llm_configyaml)
+  - [Configuration System](#configuration-system)
 - [Docker Support](#-docker-support)
 - [Contributing](#-contributing)
 - [License](#-license)
@@ -68,35 +68,18 @@ OPENAI_API_KEY=your_openai_api_key_here
 VAULT_PATH=/path/to/your/obsidian/vault
 ```
 
-**LLM Configuration (Optional):**
-For advanced LLM configuration with load balancing and local models:
+**Configuration Setup:**
 ```bash
-# Copy LLM configuration template
-cp llm_config_example.yaml llm_config.yaml
+# Copy configuration templates
+cp config_example.yaml config.yaml
+cp .env.example .env
 
-# Edit LLM configuration (supports OpenAI and Ollama)
-nano llm_config.yaml
-```
+# Edit configuration files
+nano config.yaml  # All settings except API keys
+nano .env         # API keys only
 
-**Optional Configuration:**
-```bash
-# Server settings
-SERVER_PORT=7001
-HOST=0.0.0.0
-
-# Processing settings
-MAX_CONCURRENT=5
-CHUNK_THRESHOLD=0.75
-CHUNK_SIZE=1024
-EMBEDDING_MODEL=minishlab/potion-base-8M
-
-# SSL settings (for HTTPS)
-SSL_CERT=/path/to/cert.pem
-SSL_KEY=/path/to/key.pem
-SSL_PASSWORD=your_ssl_password
-
-# Debug mode
-DEBUG=false
+# Check configuration status
+uv run cli/manage_config.py status
 ```
 
 > **Note**: Command line arguments always override `.env` values. See [Configuration](#-configuration) for details.
@@ -363,78 +346,83 @@ model_config:
 **Available Prompt Types:**
 - `relationship_extraction`: Single prompt used by all modules (step1_extract.py, main.py, step4_monitor.py)
 
-### LLM Configuration (llm_config.yaml)
+### Configuration System
 
-The system supports flexible LLM configuration through `llm_config.yaml` for both cloud and local Ollama deployments:
+The system uses a unified configuration approach with two files:
 
-```yaml
-# Provider selection: "cloud" or "ollama"
-provider: "cloud"  # or "ollama"
+#### **1. Setup Configuration Files**
 
-# Cloud configuration (OpenAI)
-cloud:
-  openai:
-    api_key: "your_openai_api_key_here"
-    model: "gpt-4o-mini"
-    timeout: 60
-
-# Ollama configuration (local models)
-ollama:
-  model: "gemma3:12b"
-  timeout: 60
-  max_retries: 3
-  retry_delay: 5
-  load_balance_strategy: "round_robin"  # round_robin, random, least_connections, fastest_response
-  health_check:
-    interval: 30
-    timeout: 10
-  servers:
-    - name: "local"
-      url: "http://localhost:11434"
-      enabled: true
-      priority: 1
-    - name: "remote-server"
-      url: "http://remote-server:11434"
-      enabled: true
-      priority: 2
-
-# Global settings
-global:
-  chunk_size: 1024
-  chunk_threshold: 0.75
-  embedding_model: "minishlab/potion-base-8M"
-  max_concurrent: 5
-```
-
-**Configuration Management:**
 ```bash
-# Create configuration from example
-cp llm_config_example.yaml llm_config.yaml
+# Copy example files
+cp config_example.yaml config.yaml
+cp .env.example .env
 
 # Edit configuration
-nano llm_config.yaml
-
-# Validate configuration
-uv run manage_llm_config.py validate
-
-# Test configuration
-uv run manage_llm_config.py test
+nano config.yaml
+nano .env
 ```
 
-**LLM Provider Options:**
-- **Cloud (OpenAI)**: Use `provider: "cloud"` for OpenAI GPT models
-- **Ollama (Local)**: Use `provider: "ollama"` for local Ollama models with load balancing
+#### **2. Configuration Structure**
 
-**Load Balancing Strategies:**
+**`config.yaml` - All non-sensitive settings:**
+```yaml
+# Vault Configuration
+vault:
+  path: "/path/to/your/obsidian/vault"
+  templates_enabled: true
+  template_folder: "_Templates"
+
+# LLM Configuration  
+llm:
+  provider: "cloud"  # "cloud" or "ollama"
+  cloud:
+    openai:
+      model: "gpt-4o-mini"
+      timeout: 60
+  ollama:
+    model: "gemma3:12b"
+    servers: [...]
+
+# Database, Processing, Server configs...
+```
+
+**`.env` - API keys only:**
+```bash
+OPENAI_API_KEY=your-openai-api-key-here
+```
+
+#### **3. Configuration Management**
+
+```bash
+# Check configuration status
+uv run cli/manage_config.py status
+
+# Validate configuration
+uv run cli/manage_config.py validate
+
+# Show full configuration
+uv run cli/manage_config.py show
+```
+
+#### **4. Environment Variable Overrides**
+
+You can override any setting using environment variables:
+- `VAULT_PATH`: Override vault path
+- `LLM_PROVIDER`: Switch between cloud/ollama
+- `DB_PORT`: Override database port
+- `SERVER_PORT`: Override server port
+
+#### **5. LLM Provider Options**
+
+- **Cloud (OpenAI)**: Set `llm.provider: "cloud"` and add your API key to `.env`
+- **Ollama (Local)**: Set `llm.provider: "ollama"` and configure servers in `config.yaml`
+
+#### **6. Load Balancing (Ollama)**
+
 - `round_robin`: Distribute requests evenly across servers
-- `random`: Randomly select available servers
+- `random`: Randomly select available servers  
 - `least_connections`: Use server with fewest active connections
 - `fastest_response`: Prefer servers with fastest response times
-
-**Health Monitoring:**
-- Automatic health checks for Ollama servers
-- Automatic failover when servers become unavailable
-- Background monitoring with configurable intervals
 
 ## 🐳 Docker Support
 
