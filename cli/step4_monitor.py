@@ -29,6 +29,23 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 console = Console()
 
+def extract_vault_path_from_db_path(db_path: str) -> Optional[Path]:
+    """
+    Extract vault path from database path.
+    Expected format: vault_path/.kineviz_graph/database/knowledge_graph.kz
+    """
+    try:
+        db_path_obj = Path(db_path)
+        if (db_path_obj.name == "knowledge_graph.kz" and 
+            db_path_obj.parent.name == "database" and
+            db_path_obj.parent.parent.name == ".kineviz_graph"):
+            # Go up three levels: database -> .kineviz_graph -> vault
+            vault_path = db_path_obj.parent.parent.parent
+            return vault_path
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not extract vault path from {db_path}: {e}[/yellow]")
+    return None
+
 
 class VaultFileHandler(FileSystemEventHandler):
     """Handle file system events for markdown files in the vault"""
@@ -249,15 +266,20 @@ class VaultFileHandler(FileSystemEventHandler):
 class VaultMonitor:
     """Monitor daemon for Obsidian vault changes using FileTracker"""
     
-    def __init__(self, vault_path: Path, max_concurrent: int = 5, server_port: int = 7001):
+    def __init__(self, db_path: str, max_concurrent: int = 5, server_port: int = 7001):
+        # Extract vault path from database path
+        vault_path = extract_vault_path_from_db_path(db_path)
+        if not vault_path:
+            raise ValueError(f"Could not extract vault path from database path: {db_path}")
+        
         self.vault_path = vault_path
+        self.db_path = db_path
         self.max_concurrent = max_concurrent
         self.kineviz_dir = vault_path / ".kineviz_graph"
         self.cache_dir = self.kineviz_dir / "cache"
         self.content_dir = self.cache_dir / "content"
         self.db_input_dir = self.cache_dir / "db_input"
         self.database_dir = self.kineviz_dir / "database"
-        self.db_path = str(self.database_dir / "knowledge_graph.kz")
         
         # Ensure directories exist
         for dir_path in [self.kineviz_dir, self.cache_dir, self.content_dir, self.db_input_dir, self.database_dir]:
@@ -271,7 +293,7 @@ class VaultMonitor:
         
         # Initialize Kuzu server manager
         self.server_manager = KuzuServerManager(
-            db_path=str(self.db_path),
+            db_path=self.db_path,
             port=server_port
         )
         
@@ -663,9 +685,9 @@ class VaultMonitor:
 
 
 @click.command()
-@click.option("--vault-path", type=click.Path(exists=True, file_okay=False, path_type=Path), 
-              default=lambda: os.getenv("VAULT_PATH"), 
-              help="Path to Obsidian vault (default: VAULT_PATH env var)")
+@click.option("--db-path", type=click.Path(exists=True, file_okay=True, path_type=Path), 
+              default=lambda: os.getenv("DB_PATH"), 
+              help="Path to Kuzu database file (default: auto-detect from VAULT_PATH env var)")
 @click.option("--max-concurrent", default=lambda: int(os.getenv("MAX_CONCURRENT", "5")), 
               type=int,
               help="Maximum number of concurrent file processing tasks (default: MAX_CONCURRENT env var or 5)")
@@ -673,28 +695,34 @@ class VaultMonitor:
               type=int,
               help="Port for Kuzu Neo4j server (default: SERVER_PORT env var or 7001)")
 @click.option("--daemon", is_flag=True, help="Run as daemon (detached from terminal)")
-def main(vault_path: Path, max_concurrent: int, server_port: int, daemon: bool):
+def main(db_path: Path, max_concurrent: int, server_port: int, daemon: bool):
     """Step 4: Monitor Obsidian vault for changes and auto-update knowledge graph"""
     
-    # Validate vault path
-    if not vault_path:
-        console.print("[red]Error: Vault path is required. Set VAULT_PATH environment variable or use --vault-path[/red]")
-        console.print("[yellow]Example: uv run step4_monitor.py --vault-path '/path/to/vault'[/yellow]")
-        console.print("[yellow]Or set VAULT_PATH in your .env file[/yellow]")
-        sys.exit(1)
+    # Auto-detect database path if not provided
+    if not db_path:
+        vault_path_env = os.getenv("VAULT_PATH")
+        if vault_path_env:
+            vault_path = Path(vault_path_env)
+            db_path = vault_path / ".kineviz_graph" / "database" / "knowledge_graph.kz"
+            console.print(f"[cyan]Auto-detected database path: {db_path}[/cyan]")
+        else:
+            console.print("[red]Error: Database path is required. Set DB_PATH environment variable or use --db-path[/red]")
+            console.print("[yellow]Example: uv run step4_monitor.py --db-path '/path/to/vault/.kineviz_graph/database/knowledge_graph.kz'[/yellow]")
+            console.print("[yellow]Or set VAULT_PATH in your .env file for auto-detection[/yellow]")
+            sys.exit(1)
     
-    if not vault_path.exists():
-        console.print(f"[red]Error: Vault path does not exist: {vault_path}[/red]")
+    if not db_path.exists():
+        console.print(f"[red]Error: Database path does not exist: {db_path}[/red]")
+        console.print("[yellow]Run step3_build.py first to create the database[/yellow]")
         sys.exit(1)
-    
-    # Validate it's a valid Obsidian vault
-    obsidian_config = vault_path / ".obsidian"
-    if not obsidian_config.exists():
-        console.print(f"[yellow]Warning: {vault_path} doesn't appear to be an Obsidian vault (no .obsidian directory)[/yellow]")
-        console.print("Continuing anyway...")
     
     # Create monitor instance
-    monitor = VaultMonitor(vault_path, max_concurrent, server_port)
+    try:
+        monitor = VaultMonitor(str(db_path), max_concurrent, server_port)
+        console.print(f"[green]Vault path detected: {monitor.vault_path}[/green]")
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        sys.exit(1)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):

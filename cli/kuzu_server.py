@@ -33,6 +33,11 @@ import kuzu
 # Import our new pooling module
 from kuzu_pool import KuzuConnectionPool, PoolConfig
 
+# Pydantic models for API requests
+class MarkdownFileRequest(BaseModel):
+    filename: str
+    content: str
+
 # Enhanced logging configuration
 def setup_logging():
     """Setup enhanced logging with file and console handlers"""
@@ -206,9 +211,22 @@ class QueryResult:
 class KuzuQueryProcessor:
     """Processes Kuzu queries and converts results to Neo4j-compatible format"""
     
-    def __init__(self, db_path: str, pool_config: PoolConfig = None):
+    def __init__(self, db_path: str, pool_config: PoolConfig = None, vault_path: str = None):
         self.db_path = db_path
         self.pool_config = pool_config or PoolConfig()
+        
+        # Extract vault path from db_path if not provided
+        if vault_path is None:
+            # db_path format: vault_path/.kineviz_graph/database/knowledge_graph.kz
+            db_path_obj = Path(db_path)
+            if db_path_obj.name == "knowledge_graph.kz" and db_path_obj.parent.name == "database":
+                # Go up two levels: database -> .kineviz_graph -> vault
+                self.vault_path = str(db_path_obj.parent.parent.parent)
+            else:
+                self.vault_path = None
+        else:
+            self.vault_path = vault_path
+            
         self.connection_pool = None
         self.query_count = 0
         self.error_count = 0
@@ -780,6 +798,7 @@ def parse_arguments():
     
     parser = argparse.ArgumentParser(description="Kuzu Neo4j-Compatible API Server")
     parser.add_argument("db_path", help="Path to the Kuzu database directory")
+    parser.add_argument("--vault-path", help="Path to the Obsidian vault (required for /save-markdown endpoint)")
     parser.add_argument("--port", type=int, default=7001, help="Port to run the server on (default: 7001)")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
     parser.add_argument("--ssl-cert", help="Path to SSL certificate file (enables HTTPS)")
@@ -887,6 +906,51 @@ def create_app(query_processor: KuzuQueryProcessor) -> FastAPI:
                 "error": str(e),
                 "timestamp": datetime.now().isoformat()
             }
+    
+    # Save markdown file endpoint
+    @app.post("/save-markdown")
+    async def save_markdown_file(request: MarkdownFileRequest):
+        """Save a markdown file to the Obsidian vault"""
+        try:
+            if not query_processor.vault_path:
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Vault path could not be determined from database path. Expected format: vault_path/.kineviz_graph/database/knowledge_graph.kz"
+                )
+            
+            # Create GraphXRNotes folder if it doesn't exist
+            vault_path = Path(query_processor.vault_path)
+            graphxr_notes_dir = vault_path / "GraphXRNotes"
+            graphxr_notes_dir.mkdir(exist_ok=True)
+            
+            # Ensure filename has .md extension
+            filename = request.filename
+            if not filename.endswith('.md'):
+                filename += '.md'
+            
+            # Create the file path
+            file_path = graphxr_notes_dir / filename
+            
+            # Write the content to the file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(request.content)
+            
+            logger.info(f"Saved markdown file: {file_path}")
+            
+            return {
+                "status": "success",
+                "message": f"File saved successfully as {filename}",
+                "file_path": str(file_path),
+                "vault_path": str(vault_path),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error saving markdown file: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save markdown file: {str(e)}"
+            )
     
     # Main kuzudb route - matches Node.js POST /kuzudb/:name
     @app.post("/kuzudb/{name}")
@@ -1073,7 +1137,7 @@ def main():
         idle_timeout=300,
         health_check_interval=60
     )
-    query_processor = KuzuQueryProcessor(db_path, pool_config)
+    query_processor = KuzuQueryProcessor(db_path, pool_config, args.vault_path)
     
     # Create FastAPI app with the query processor
     app = create_app(query_processor)
@@ -1092,6 +1156,8 @@ def main():
     print("Debug endpoints available at:")
     print(f"  {protocol}://{args.host}:{port}/debug/crashes")
     print(f"  {protocol}://{args.host}:{port}/health")
+    if args.vault_path:
+        print(f"  {protocol}://{args.host}:{port}/save-markdown")
     print("Press Ctrl+C to stop the server")
     
     # Configure uvicorn with SSL if enabled
