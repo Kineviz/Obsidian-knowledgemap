@@ -18,6 +18,8 @@ Your Vault/
 │   └── Meritage Group.md
 ├── Projects/                  # Project notes
 ├── Meetings/                  # Meeting notes
+├── GraphXRNotes/              # Notes created via API upload
+│   └── (API-uploaded files)
 └── _Templates/                # Template folder (excluded from processing)
     ├── Template - Person.md
     └── Template - Company.md
