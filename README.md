@@ -43,7 +43,54 @@ curl -X POST "http://localhost:7001/save-markdown" \
   -d '{"filename": "My Note.md", "content": "# My Note\n\nThis is a test note with some content."}'
 ```
 
-## 📋 API Endpoints
+## � Quick Docker Setup
+
+If you prefer to run everything in Docker containers:
+
+### 1. Setup Environment
+```bash
+git clone https://github.com/kineviz/Obsidian-knowledgemap.git
+cd Obsidian-knowledgemap
+
+# Copy and configure environment file
+cp docker.env.example .env
+
+# Edit the .env file with your settings:
+# - OPENAI_API_KEY=your_openai_api_key_here  
+# - VAULT_PATH=/path/to/your/obsidian/vault
+# - SERVER_PORT=7001
+nano .env
+```
+
+### 2. Start with Docker Management Script (Recommended)
+```bash
+# Start the service (builds if needed, cleans up old containers)
+./docker-manage.sh start
+
+# Check status and logs
+./docker-manage.sh status
+./docker-manage.sh logs
+```
+
+### 3. Alternative: Using Docker Compose Directly
+```bash
+# Start the container
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop when done
+docker-compose down
+```
+
+The Docker environment automatically:
+- Builds the knowledge graph from your vault
+- Starts the REST API server on the configured port
+- Monitors for file changes and updates the graph
+- Persists data in Docker volumes
+
+## �📋 API Endpoints
 
 ### Graph Query
 - **GET** `/cypher?query={cypher_query}` - Execute Cypher queries
