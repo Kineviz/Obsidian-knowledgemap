@@ -16,3 +16,7 @@ test_*.kz
 
 # Distribution packages
 kineviz-obsidian-base-*
+
+llm_config.yaml
+tls.key
+tls.crt

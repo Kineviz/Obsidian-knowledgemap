@@ -24,11 +24,41 @@ from file_tracker import FileTracker, ChangeType
 from manual_trigger import ManualTrigger
 from obsidian_config_reader import ObsidianConfigReader
 from config_loader import ConfigLoader
+from markdown_transformer import transform_markdown_images, batch_transform_notes
 
 # Load environment variables
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 console = Console()
+
+def construct_server_url(server_port: int) -> str:
+    """
+    Construct server URL using HOST from .env and SSL support.
+    
+    Args:
+        server_port: The server port to use
+        
+    Returns:
+        The constructed server URL with appropriate protocol and port
+    """
+    host = os.getenv("HOST", "localhost")
+    port = server_port
+    use_ssl = os.getenv("USE_SSL", "false").lower() == "true"
+    
+    # Check for TLS certificates to determine SSL availability
+    project_root = Path(__file__).parent.parent
+    tls_cert = project_root / "tls.crt"
+    tls_key = project_root / "tls.key"
+    ssl_available = tls_cert.exists() and tls_key.exists()
+    
+    # Use SSL if explicitly enabled, or if certificates are available and SSL is not explicitly disabled
+    protocol = "https" if (use_ssl or (ssl_available and os.getenv("USE_SSL", "").lower() != "false")) else "http"
+    
+    # If SSL is used and port is default 7001, use 8443 instead
+    if protocol == "https" and port == 7001:
+        port = 8443
+    
+    return f"{protocol}://{host}:{port}"
 
 def extract_vault_path_from_db_path(db_path: str) -> Optional[Path]:
     """
@@ -276,6 +306,7 @@ class VaultMonitor:
         self.vault_path = vault_path
         self.db_path = db_path
         self.max_concurrent = max_concurrent
+        self.server_port = server_port
         self.kineviz_dir = vault_path / ".kineviz_graph"
         self.cache_dir = self.kineviz_dir / "cache"
         self.content_dir = self.cache_dir / "content"
@@ -292,11 +323,15 @@ class VaultMonitor:
         # Initialize manual trigger for processing
         self.manual_trigger = None  # Will be initialized after server_manager
         
-        # Initialize Kuzu server manager
+        # Initialize Kuzu server manager with vault path for image serving
         self.server_manager = KuzuServerManager(
-            db_path=self.db_path,
-            port=server_port
+            db_path=str(self.db_path),
+            port=server_port,
+            vault_path=str(vault_path)
         )
+        
+        # Update server_port to reflect the actual port being used (in case SSL changed it)
+        self.server_port = self.server_manager.port
         
         # Initialize manual trigger with server manager
         self.manual_trigger = ManualTrigger(vault_path, self.server_manager)
@@ -495,6 +530,148 @@ class VaultMonitor:
             console.print(f"[green]Converted {converted_count} cache files to use relative paths[/green]")
         else:
             console.print("[green]All cache files already use relative paths[/green]")
+    
+    def transform_vault_markdown_images(self, dry_run: bool = False) -> int:
+        """
+        Transform image links in all markdown files in the vault.
+        
+        Args:
+            dry_run: If True, only show what would be changed without modifying files
+            
+        Returns:
+            Number of files that were (or would be) transformed
+        """
+        console.print("[cyan]Scanning vault for markdown files with image links...[/cyan]")
+        
+        # Construct server URL using HOST from .env and SSL support
+        server_url = self._construct_server_url()
+        
+        console.print(f"[cyan]Using server URL: {server_url}[/cyan]")
+        console.print(f"[cyan]SSL enabled: {server_url.startswith('https')}[/cyan]")
+        
+        transformed_count = 0
+        files_with_images = []
+        
+        # Find all markdown files
+        for md_file in self.vault_path.rglob("*.md"):
+            # Skip hidden directories
+            if any(part.startswith('.') for part in md_file.parts):
+                continue
+            
+            try:
+                # Read file content
+                with open(md_file, 'r', encoding='utf-8') as f:
+                    original_content = f.read()
+                
+                # Check if file has image links
+                if '![[' not in original_content and '![' not in original_content:
+                    continue
+                
+                # Transform the content
+                relative_path = md_file.relative_to(self.vault_path)
+                transformed_content = transform_markdown_images(
+                    original_content,
+                    server_url=server_url,
+                    vault_path=str(self.vault_path),
+                    current_file_path=str(relative_path)
+                )
+                
+                # Check if content actually changed
+                if transformed_content != original_content:
+                    files_with_images.append({
+                        'path': md_file,
+                        'relative_path': relative_path,
+                        'original': original_content,
+                        'transformed': transformed_content
+                    })
+                    
+                    if not dry_run:
+                        # Write transformed content back
+                        with open(md_file, 'w', encoding='utf-8') as f:
+                            f.write(transformed_content)
+                        console.print(f"[green]✓ Transformed: {relative_path}[/green]")
+                    else:
+                        console.print(f"[yellow]Would transform: {relative_path}[/yellow]")
+                    
+                    transformed_count += 1
+                    
+            except Exception as e:
+                console.print(f"[red]Error processing {md_file.name}: {e}[/red]")
+                continue
+        
+        if transformed_count > 0:
+            if dry_run:
+                console.print(f"\n[cyan]Dry run complete: {transformed_count} files would be transformed[/cyan]")
+                console.print(f"[yellow]Run without --dry-run flag to apply changes[/yellow]")
+            else:
+                console.print(f"\n[green]✓ Transformed {transformed_count} markdown files[/green]")
+        else:
+            console.print("\n[green]No markdown files with image links found[/green]")
+        
+        return transformed_count
+    
+    def get_server_url(self) -> str:
+        """Get the server URL for image serving"""
+        return self.server_manager.get_server_url()
+    
+    def _construct_server_url(self) -> str:
+        """
+        Construct server URL using HOST from .env and SSL support.
+        
+        Returns:
+            The constructed server URL with appropriate protocol and port
+        """
+        # Use the server manager's URL directly to ensure consistency
+        return self.server_manager.get_server_url()
+    
+    def preview_markdown_transformation(self, file_path: Path) -> None:
+        """
+        Preview markdown transformation for a specific file without modifying it.
+        
+        Args:
+            file_path: Path to the markdown file
+        """
+        if not file_path.exists():
+            console.print(f"[red]File not found: {file_path}[/red]")
+            return
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                original_content = f.read()
+            
+            relative_path = file_path.relative_to(self.vault_path)
+            
+            # Construct server URL using HOST from .env and SSL support
+            server_url = self._construct_server_url()
+            
+            transformed_content = transform_markdown_images(
+                original_content,
+                server_url=server_url,
+                vault_path=str(self.vault_path),
+                current_file_path=str(relative_path)
+            )
+            
+            if transformed_content == original_content:
+                console.print(f"[yellow]No changes needed for: {relative_path}[/yellow]")
+            else:
+                console.print(f"\n[cyan]{'='*60}[/cyan]")
+                console.print(f"[cyan]Preview transformation for: {relative_path}[/cyan]")
+                console.print(f"[cyan]{'='*60}[/cyan]\n")
+                
+                console.print("[yellow]ORIGINAL:[/yellow]")
+                console.print(original_content[:500])
+                if len(original_content) > 500:
+                    console.print("... (truncated)")
+                
+                console.print(f"\n[green]TRANSFORMED:[/green]")
+                console.print(transformed_content[:500])
+                if len(transformed_content) > 500:
+                    console.print("... (truncated)")
+                
+                console.print(f"\n[cyan]{'='*60}[/cyan]")
+                
+        except Exception as e:
+            console.print(f"[red]Error previewing {file_path}: {e}[/red]")
 
     def validate_and_process_changes(self):
         """Use manual trigger to detect and process file changes"""
@@ -686,9 +863,12 @@ class VaultMonitor:
 
 
 @click.command()
+@click.option("--vault-path", type=click.Path(exists=True, file_okay=False, path_type=Path),
+              default=None,
+              help="Path to Obsidian vault (overrides config)")
 @click.option("--db-path", type=click.Path(exists=True, file_okay=True, path_type=Path), 
               default=None, 
-              help="Path to Kuzu database file (default: auto-detect from config)")
+              help="Path to Kuzu database file (overrides auto-detect)")
 @click.option("--max-concurrent", default=None, 
               type=int,
               help="Maximum number of concurrent file processing tasks (default: from config)")
@@ -696,23 +876,57 @@ class VaultMonitor:
               type=int,
               help="Port for Kuzu Neo4j server (default: from config)")
 @click.option("--daemon", is_flag=True, help="Run as daemon (detached from terminal)")
-def main(db_path: Path, max_concurrent: int, server_port: int, daemon: bool):
-    """Step 4: Monitor Obsidian vault for changes and auto-update knowledge graph"""
+@click.option("--transform-images", is_flag=True, help="Transform image links in all markdown files before monitoring")
+@click.option("--dry-run", is_flag=True, help="Preview transformations without modifying files (use with --transform-images)")
+@click.option("--preview-file", type=click.Path(exists=True, path_type=Path), 
+              help="Preview transformation for a specific file")
+def main(vault_path: Optional[Path], db_path: Optional[Path], max_concurrent: Optional[int], server_port: Optional[int], daemon: bool, 
+         transform_images: bool, dry_run: bool, preview_file: Optional[Path]):
+    """Step 4: Monitor Obsidian vault for changes and auto-update knowledge graph
+    
+    Examples:
+        # Start monitoring with auto-transformation
+        uv run step4_monitor.py --vault-path /path/to/vault
+        
+        # Transform all images in vault (dry run first)
+        uv run step4_monitor.py --vault-path /path/to/vault --transform-images --dry-run
+        
+        # Transform all images in vault (apply changes)
+        uv run step4_monitor.py --vault-path /path/to/vault --transform-images
+        
+        # Preview transformation for a specific file
+        uv run step4_monitor.py --vault-path /path/to/vault --preview-file note.md
+    """
     
     # Load configuration
     config_loader = ConfigLoader()
+
+    # Resolve vault_path and db_path with precedence: CLI > config/auto
+    final_vault_path: Optional[Path] = vault_path
+    final_db_path: Optional[Path] = db_path
+
+    # Fill from config if missing
+    if final_vault_path is None:
+        cfg_vault = config_loader.get_vault_path()
+        if cfg_vault:
+            final_vault_path = Path(cfg_vault)
     
-    # Auto-detect database path if not provided
-    if not db_path:
-        vault_path = config_loader.get_vault_path()
-        if vault_path:
-            db_path = Path(vault_path) / ".kineviz_graph" / "database" / "knowledge_graph.kz"
-            console.print(f"[cyan]Auto-detected database path: {db_path}[/cyan]")
-        else:
-            console.print("[red]Error: Database path is required. Set DB_PATH environment variable or use --db-path[/red]")
-            console.print("[yellow]Example: uv run step4_monitor.py --db-path '/path/to/vault/.kineviz_graph/database/knowledge_graph.kz'[/yellow]")
-            console.print("[yellow]Or configure vault.path in config.yaml[/yellow]")
-            sys.exit(1)
+    # Derive missing counterpart
+    if final_db_path is None and final_vault_path is not None:
+        final_db_path = final_vault_path / ".kineviz_graph" / "database" / "knowledge_graph.kz"
+        console.print(f"[cyan]Auto-detected database path: {final_db_path}[/cyan]")
+    elif final_db_path is not None and final_vault_path is None:
+        extracted = extract_vault_path_from_db_path(str(final_db_path))
+        if extracted:
+            final_vault_path = extracted
+
+    # Validate resolution
+    if final_db_path is None or final_vault_path is None:
+        console.print("[red]Error: Either --vault-path or --db-path must be provided (or configured).[/red]")
+        console.print("[yellow]Examples:[/yellow]")
+        console.print("  uv run step4_monitor.py --vault-path '/path/to/vault'")
+        console.print("  uv run step4_monitor.py --db-path '/path/to/vault/.kineviz_graph/database/knowledge_graph.kz'")
+        sys.exit(1)
     
     # Use config values if command line options not provided
     if max_concurrent is None:
@@ -720,18 +934,50 @@ def main(db_path: Path, max_concurrent: int, server_port: int, daemon: bool):
     if server_port is None:
         server_port = config_loader.get("server.port", 7001)
     
-    if not db_path.exists():
-        console.print(f"[red]Error: Database path does not exist: {db_path}[/red]")
+    if not final_db_path.exists():
+        console.print(f"[red]Error: Database path does not exist: {final_db_path}[/red]")
         console.print("[yellow]Run step3_build.py first to create the database[/yellow]")
         sys.exit(1)
     
     # Create monitor instance
     try:
-        monitor = VaultMonitor(str(db_path), max_concurrent, server_port)
+        monitor = VaultMonitor(str(final_db_path), max_concurrent, server_port)
         console.print(f"[green]Vault path detected: {monitor.vault_path}[/green]")
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
+    
+    # Handle preview mode
+    if preview_file:
+        console.print(f"[cyan]Previewing transformation for: {preview_file}[/cyan]")
+        monitor.preview_markdown_transformation(preview_file)
+        sys.exit(0)
+    
+    # Handle image transformation mode
+    if transform_images:
+        # Construct server URL using HOST from .env and SSL support
+        # Use the actual port from the monitor's server manager to ensure consistency
+        server_url = monitor.server_manager.get_server_url()
+        
+        console.print(f"[cyan]{'='*60}[/cyan]")
+        console.print(f"[cyan]Markdown Image Transformation[/cyan]")
+        console.print(f"[cyan]{'='*60}[/cyan]")
+        console.print(f"Vault: {monitor.vault_path}")
+        console.print(f"Server URL: {server_url}")
+        console.print(f"SSL enabled: {server_url.startswith('https')}")
+        if dry_run:
+            console.print("[yellow]Mode: DRY RUN (no files will be modified)[/yellow]")
+        else:
+            console.print("[green]Mode: APPLY CHANGES[/green]")
+        console.print(f"[cyan]{'='*60}[/cyan]\n")
+        
+        count = monitor.transform_vault_markdown_images(dry_run=dry_run)
+        
+        if not dry_run and count > 0:
+            console.print("\n[yellow]Note: Changes have been applied to markdown files.[/yellow]")
+            console.print("[yellow]The server will automatically transform these links when serving Note content.[/yellow]")
+        
+        sys.exit(0)
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum, frame):

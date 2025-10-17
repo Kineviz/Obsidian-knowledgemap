@@ -33,6 +33,7 @@ if [ $# -eq 0 ]; then
 fi
 
 VAULT_PATH="$1"
+ORIG_PORT="$2"
 SERVER_PORT="${2:-7001}"
 
 # Validate vault path
@@ -51,12 +52,32 @@ fi
 
 print_status "Starting Kuzu server..."
 print_status "Vault path: $VAULT_PATH"
-print_status "Server port: $SERVER_PORT"
 print_status "Database: $DB_PATH"
 
 # Change to the script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Detect TLS certificates in project root (one level up from cli/)
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TLS_CERT="$PROJECT_ROOT/tls.crt"
+TLS_KEY="$PROJECT_ROOT/tls.key"
+
+USE_SSL=false
+if [ -f "$TLS_CERT" ] && [ -f "$TLS_KEY" ]; then
+    USE_SSL=true
+    # If no port explicitly provided, default to 8443 for HTTPS
+    if [ -z "$ORIG_PORT" ]; then
+        SERVER_PORT=8443
+    fi
+fi
+
+PROTOCOL="http"
+if [ "$USE_SSL" = true ]; then
+    PROTOCOL="https"
+fi
+
+print_status "Server port: $SERVER_PORT (protocol: $PROTOCOL)"
 
 # Kill any existing server first
 print_status "Stopping any existing Kuzu server..."
@@ -65,10 +86,14 @@ pkill -f "kuzu_server" 2>/dev/null || true
 sleep 2
 
 print_success "Starting Kuzu server in foreground..."
-print_status "Server URL: http://0.0.0.0:$SERVER_PORT"
-print_status "Health check: http://0.0.0.0:$SERVER_PORT/health"
+print_status "Server URL: $PROTOCOL://0.0.0.0:$SERVER_PORT"
+print_status "Health check: $PROTOCOL://0.0.0.0:$SERVER_PORT/health"
 print_status "Press Ctrl+C to stop the server"
 print_status ""
 
-# Start the server in the foreground
-uv run kuzu_server.py "$DB_PATH" --port "$SERVER_PORT"
+# Start the server in the foreground with vault path for image serving
+if [ "$USE_SSL" = true ]; then
+    uv run kuzu_server.py "$DB_PATH" --port "$SERVER_PORT" --vault-path "$VAULT_PATH" --ssl-cert "$TLS_CERT" --ssl-key "$TLS_KEY"
+else
+    uv run kuzu_server.py "$DB_PATH" --port "$SERVER_PORT" --vault-path "$VAULT_PATH"
+fi

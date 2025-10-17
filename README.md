@@ -4,6 +4,38 @@ Transform your Obsidian vault into an intelligent knowledge graph using AI-power
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+A powerful CLI tool that transforms your Obsidian vault into an intelligent knowledge map using semantic chunking and AI-powered entity and relationship extraction. Built with Kuzu database and connect to Kineviz's GraphXR.
+
+## 🚀 Features
+
+- **🖼️ Image Serving**: NEW! Serve images directly from your vault with automatic markdown link transformation ([details](README_IMAGE_SERVING.md))
+- **🧠 Semantic Chunking**: Intelligent content chunking based on semantic similarity using the chonkie library
+- **📊 Knowledge Graph**: Creates a Kuzu database with entities, observations, and relationships
+- **⚡ Real-time Monitoring**: Watches your Obsidian vault for changes and auto-updates the knowledge graph
+- **🔄 Incremental Updates**: Only processes changed files based on content hash for efficiency
+- **🔗 Obsidian Integration**: Supports Obsidian `[[link]]` syntax for note-to-note relationships
+- **📝 Metadata Support**: Extracts and processes Obsidian frontmatter metadata (YAML, tags, properties)
+- **🔍 Entity Resolution**: Declarative entity resolution through metadata - specify entity mappings directly in note frontmatter
+- **🤖 AI-Powered**: Extracts observations and entities using OpenAI GPT models (other models to follow)
+- **🌐 Connect to GraphXR**: Provides a REST API server for access and visualization in GraphXR
+- **⚡ Concurrent Processing**: Processes multiple files in parallel for better performance
+
+## 📋 Table of Contents
+
+- [Quick Start](#-quick-start)
+- [Installation](#-installation)
+- [Usage](#-usage)
+- [API Reference](#-api-reference)
+- [Database Schema](#-database-schema)
+- [Configuration](#-configuration)
+  - [Environment Variables](#environment-variables-env-file)
+  - [AI Prompt Configuration](#ai-prompt-configuration)
+  - [LLM Configuration](#llm-configuration-llm_configyaml)
+- [Docker Support](#-docker-support)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ## 🚀 Quick Start
 

@@ -16,19 +16,33 @@ import psutil
 from pathlib import Path
 from typing import Optional, Dict, Any
 from rich.console import Console
+from dotenv import load_dotenv
+
+load_dotenv()
 
 console = Console()
 
 class KuzuServerManager:
     """Manages the Kuzu Neo4j server process"""
     
-    def __init__(self, db_path: str, port: int = 7001, host: str = "0.0.0.0"):
+    def __init__(self, db_path: str, port: int = 7001, host: str = "0.0.0.0", vault_path: Optional[str] = None):
         self.db_path = Path(db_path)
         self.port = port
-        self.host = host
+        self.host = os.getenv("HOST", "0.0.0.0")
+
+        self.protocol = "https" if os.getenv("USE_SSL", "false") == "true" else "http"
+        self.vault_path = vault_path
         self.process: Optional[subprocess.Popen] = None
         self.is_running = False
         self._lock = threading.Lock()
+        # TLS autodetection (project root is parent of cli/)
+        project_root = Path(__file__).parent.parent
+        self.tls_cert = project_root / "tls.crt"
+        self.tls_key = project_root / "tls.key"
+        self.use_ssl = self.tls_cert.exists() and self.tls_key.exists()
+        # If SSL available and port was default 7001, prefer 8443
+        if self.use_ssl and self.port == 7001:
+            self.port = 8443
         
     def start_server(self, force_restart: bool = False) -> bool:
         """Start the Kuzu server in the background"""
@@ -57,7 +71,15 @@ class KuzuServerManager:
                     "--host", self.host
                 ]
                 
-                console.print(f"[cyan]Starting Kuzu server on {self.host}:{self.port}[/cyan]")
+                # Add vault path if provided (enables image serving)
+                if self.vault_path:
+                    cmd.extend(["--vault-path", str(self.vault_path)])
+                # Add TLS flags if available
+                if self.use_ssl:
+                    cmd.extend(["--ssl-cert", str(self.tls_cert), "--ssl-key", str(self.tls_key)])
+                
+                protocol = "https" if self.use_ssl else "http"
+                console.print(f"[cyan]Starting Kuzu server on {protocol}://{self.host}:{self.port}[/cyan]")
                 
                 # Start process in background (don't capture output to avoid hanging)
                 self.process = subprocess.Popen(
@@ -147,7 +169,8 @@ class KuzuServerManager:
     
     def get_server_url(self) -> str:
         """Get the server URL"""
-        return f"http://{self.host}:{self.port}"
+        protocol = "https" if getattr(self, "use_ssl", False) else "http"
+        return f"{protocol}://{self.host}:{self.port}"
     
     def cleanup(self):
         """Cleanup resources"""

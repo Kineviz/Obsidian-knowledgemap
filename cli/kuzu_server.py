@@ -27,11 +27,42 @@ import psutil
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import kuzu
 
 # Import our new pooling module
 from kuzu_pool import KuzuConnectionPool, PoolConfig
+from markdown_transformer import transform_markdown_images
+
+def get_server_url() -> str:
+    """
+    Get the server URL using the same logic as KuzuServerManager.
+    
+    Returns:
+        The constructed server URL with appropriate protocol and port
+    """
+    import os
+    from pathlib import Path
+    
+    host = os.getenv("HOST", "localhost")
+    port = 7001  # Default port
+    use_ssl = os.getenv("USE_SSL", "false").lower() == "true"
+    
+    # Check for TLS certificates to determine SSL availability
+    project_root = Path(__file__).parent.parent
+    tls_cert = project_root / "tls.crt"
+    tls_key = project_root / "tls.key"
+    ssl_available = tls_cert.exists() and tls_key.exists()
+    
+    # Use SSL if explicitly enabled, or if certificates are available and SSL is not explicitly disabled
+    protocol = "https" if (use_ssl or (ssl_available and os.getenv("USE_SSL", "").lower() != "false")) else "http"
+    
+    # If SSL is used and port is default 7001, use 8443 instead
+    if protocol == "https" and port == 7001:
+        port = 8443
+    
+    return f"{protocol}://{host}:{port}"
 
 # Pydantic models for API requests
 class MarkdownFileRequest(BaseModel):
@@ -213,6 +244,7 @@ class KuzuQueryProcessor:
     
     def __init__(self, db_path: str, pool_config: PoolConfig = None, vault_path: str = None):
         self.db_path = db_path
+        self.vault_path = vault_path
         self.pool_config = pool_config or PoolConfig()
         
         # Extract vault path from db_path if not provided
@@ -337,6 +369,12 @@ class KuzuQueryProcessor:
             if any(cmd in query_lower for cmd in ["show databases", "call list", "call dbs", "show tables"]):
                 logger.debug("Detected database listing request")
                 return "CALL show_tables() RETURN *"
+            
+            # Handle null label issue - replace :null with :Unknown or remove label
+            if ":null" in query_lower:
+                logger.warning("Detected null label in query, replacing with :Unknown")
+                query = query.replace(":null", ":Unknown")
+                query = query.replace(":NULL", ":Unknown")
             
             # Add automatic LIMIT if missing
             if "return" in query_lower and "limit" not in query_lower:
@@ -721,11 +759,29 @@ LIMIT 2000''')
     
     def _node_to_dict(self, node: Node) -> Dict[str, Any]:
         """Convert Node to dictionary"""
-        return {
+        node_dict = {
             "id": node.id,
             "labels": node.labels,
             "properties": node.properties
         }
+        
+        # Auto-transform markdown content in Note nodes if vault_path is available
+        if self.vault_path and 'Note' in node.labels and 'content' in node.properties:
+            try:
+                # Get server URL using the same logic as KuzuServerManager
+                server_url = get_server_url()
+                
+                # Transform the markdown content
+                node_dict["properties"]["content"] = transform_markdown_images(
+                    node.properties["content"],
+                    server_url=server_url,
+                    vault_path=self.vault_path,
+                    current_file_path=node.properties.get("url")
+                )
+            except Exception as e:
+                logger.warning(f"Failed to transform markdown content for node {node.id}: {e}")
+        
+        return node_dict
     
     def _relationship_to_dict(self, rel: Relationship) -> Dict[str, Any]:
         """Convert Relationship to dictionary"""
@@ -798,7 +854,7 @@ def parse_arguments():
     
     parser = argparse.ArgumentParser(description="Kuzu Neo4j-Compatible API Server")
     parser.add_argument("db_path", help="Path to the Kuzu database directory")
-    parser.add_argument("--vault-path", help="Path to the Obsidian vault (required for /save-markdown endpoint)")
+    parser.add_argument("--vault-path", help="Path to Obsidian vault (enables image serving and /save-markdown)")
     parser.add_argument("--port", type=int, default=7001, help="Port to run the server on (default: 7001)")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
     parser.add_argument("--ssl-cert", help="Path to SSL certificate file (enables HTTPS)")
@@ -877,6 +933,50 @@ def create_app(query_processor: KuzuQueryProcessor) -> FastAPI:
             logger.error(f"Error getting debug info: {e}")
             return {"error": str(e)}
     
+    # Image serving endpoint
+    @app.get("/images/{image_path:path}")
+    async def serve_image(image_path: str):
+        """Serve images from the vault directory"""
+        try:
+            if not query_processor.vault_path:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Vault path not configured. Server must be started with --vault-path argument."
+                )
+            
+            # Construct full path to image
+            vault_path = Path(query_processor.vault_path)
+            full_image_path = vault_path / image_path
+            
+            # Security check: ensure the resolved path is within the vault directory
+            try:
+                full_image_path = full_image_path.resolve()
+                vault_path = vault_path.resolve()
+                if not str(full_image_path).startswith(str(vault_path)):
+                    raise HTTPException(status_code=403, detail="Access denied: path outside vault")
+            except Exception as e:
+                logger.error(f"Error resolving path {image_path}: {e}")
+                raise HTTPException(status_code=400, detail="Invalid path")
+            
+            # Check if file exists
+            if not full_image_path.exists() or not full_image_path.is_file():
+                raise HTTPException(status_code=404, detail=f"Image not found: {image_path}")
+            
+            # Check if it's an image file (basic check by extension)
+            image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.ico'}
+            if full_image_path.suffix.lower() not in image_extensions:
+                raise HTTPException(status_code=400, detail="Not an image file")
+            
+            logger.debug(f"Serving image: {full_image_path}")
+            return FileResponse(full_image_path)
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error serving image {image_path}: {e}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=str(e))
+    
     # Health check endpoint
     @app.get("/health")
     async def health_check():
@@ -951,6 +1051,40 @@ def create_app(query_processor: KuzuQueryProcessor) -> FastAPI:
                 status_code=500,
                 detail=f"Failed to save markdown file: {str(e)}"
             )
+    # Endpoint to transform markdown content
+    @app.post("/transform_markdown")
+    async def transform_markdown_endpoint(request: Request):
+        """Transform markdown content to update image links"""
+        try:
+            body = await request.json()
+            content = body.get("content", "")
+            # Use the same server URL logic as KuzuServerManager for consistency
+            if "server_url" in body:
+                server_url = body.get("server_url")
+            else:
+                server_url = get_server_url()
+            vault_path = body.get("vault_path", query_processor.vault_path)
+            current_file_path = body.get("current_file_path")
+            
+            transformed = transform_markdown_images(
+                content,
+                server_url=server_url,
+                vault_path=vault_path,
+                current_file_path=current_file_path
+            )
+            
+            return {
+                "original": content,
+                "transformed": transformed,
+                "status": 0,
+                "message": "Successful"
+            }
+        except Exception as e:
+            logger.error(f"Error transforming markdown: {e}")
+            return {
+                "status": 1,
+                "message": str(e)
+            }
     
     # Main kuzudb route - matches Node.js POST /kuzudb/:name
     @app.post("/kuzudb/{name}")
@@ -1137,7 +1271,7 @@ def main():
         idle_timeout=300,
         health_check_interval=60
     )
-    query_processor = KuzuQueryProcessor(db_path, pool_config, args.vault_path)
+    query_processor = KuzuQueryProcessor(db_path, pool_config, vault_path=args.vault_path)
     
     # Create FastAPI app with the query processor
     app = create_app(query_processor)
@@ -1150,6 +1284,9 @@ def main():
     # Run the server
     print(f"Starting Kuzu Neo4j-Compatible API Server on {protocol}://{args.host}:{port}")
     print(f"Database: {db_path}")
+    if args.vault_path:
+        print(f"Vault Path: {args.vault_path}")
+        print(f"Image serving enabled at: {protocol}://{args.host}:{port}/images/{{path}}")
     if use_ssl:
         print(f"SSL Certificate: {args.ssl_cert}")
         print(f"SSL Private Key: {args.ssl_key}")
