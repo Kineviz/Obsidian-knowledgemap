@@ -27,7 +27,8 @@ nano .env         # Add your OpenAI API key
 ### 2. Start Monitoring and Kuzu Server
 ```bash
 # Start monitoring - builds database automatically if needed
-uv run cli/step4_monitor.py
+cd cli
+uv run step4_monitor.py
 ```
 
 ### 3. Use the API
