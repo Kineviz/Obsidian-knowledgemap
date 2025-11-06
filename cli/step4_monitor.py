@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional, Set
 
 import click
+import kuzu
 from dotenv import load_dotenv
 from rich.console import Console
 from watchdog.events import FileSystemEventHandler
@@ -29,6 +30,43 @@ from config_loader import ConfigLoader
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 console = Console()
+
+def init_empty_database(db_path: str) -> None:
+    """Initialize an empty database with schema if it doesn't exist"""
+    try:
+        # Create parent directory if it doesn't exist
+        db_dir = os.path.dirname(db_path)
+        os.makedirs(db_dir, exist_ok=True)
+        
+        # Check if database already exists
+        if Path(db_path).exists():
+            return
+        
+        console.print(f"[cyan]Database not found. Creating empty database with schema at: {db_path}[/cyan]")
+        
+        # Create database and initialize schema
+        db = kuzu.Database(db_path)
+        conn = kuzu.Connection(db)
+        
+        # Create node tables
+        conn.execute("CREATE NODE TABLE IF NOT EXISTS Person(id STRING, label STRING, metadata STRING, PRIMARY KEY(id))")
+        conn.execute("CREATE NODE TABLE IF NOT EXISTS Company(id STRING, label STRING, metadata STRING, PRIMARY KEY(id))")
+        conn.execute("CREATE NODE TABLE IF NOT EXISTS Note(id STRING, label STRING, content STRING, PRIMARY KEY(id))")
+        
+        # Create relationship tables
+        conn.execute("CREATE REL TABLE IF NOT EXISTS PERSON_TO_PERSON(FROM Person TO Person, relationship STRING)")
+        conn.execute("CREATE REL TABLE IF NOT EXISTS PERSON_TO_COMPANY(FROM Person TO Company, relationship STRING)")
+        conn.execute("CREATE REL TABLE IF NOT EXISTS COMPANY_TO_COMPANY(FROM Company TO Company, relationship STRING)")
+        conn.execute("CREATE REL TABLE IF NOT EXISTS PERSON_REFERENCE(FROM Person TO Note)")
+        conn.execute("CREATE REL TABLE IF NOT EXISTS COMPANY_REFERENCE(FROM Company TO Note)")
+        conn.execute("CREATE REL TABLE IF NOT EXISTS NOTE_TO_NOTE(FROM Note TO Note)")
+        
+        conn.close()
+        console.print("[green]Empty database created with schema[/green]")
+        
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not create empty database: {e}[/yellow]")
+        console.print("[yellow]Continuing anyway - database will be created when needed[/yellow]")
 
 def extract_vault_path_from_db_path(db_path: str) -> Optional[Path]:
     """
@@ -686,7 +724,7 @@ class VaultMonitor:
 
 
 @click.command()
-@click.option("--db-path", type=click.Path(exists=True, file_okay=True, path_type=Path), 
+@click.option("--db-path", type=click.Path(file_okay=True, path_type=Path), 
               default=None, 
               help="Path to Kuzu database file (default: auto-detect from config)")
 @click.option("--max-concurrent", default=None, 
@@ -720,10 +758,11 @@ def main(db_path: Path, max_concurrent: int, server_port: int, daemon: bool):
     if server_port is None:
         server_port = config_loader.get("server.port", 7001)
     
+    # Create database directory structure and initialize empty database if needed
     if not db_path.exists():
-        console.print(f"[red]Error: Database path does not exist: {db_path}[/red]")
-        console.print("[yellow]Run step3_build.py first to create the database[/yellow]")
-        sys.exit(1)
+        console.print(f"[yellow]Database not found at: {db_path}[/yellow]")
+        console.print("[cyan]Creating database directory structure and initializing empty database...[/cyan]")
+        init_empty_database(str(db_path))
     
     # Create monitor instance
     try:

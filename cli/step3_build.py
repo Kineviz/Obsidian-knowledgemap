@@ -16,9 +16,10 @@ import kuzu
 from dotenv import load_dotenv
 from rich.console import Console
 from obsidian_config_reader import ObsidianConfigReader
+from config_loader import ConfigLoader
 
 # Load environment variables
-load_dotenv()
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 console = Console()
 
@@ -649,19 +650,32 @@ class Step3Builder:
 
 @click.command()
 @click.option("--vault-path", type=click.Path(exists=True, file_okay=False, path_type=Path), 
-              default=lambda: os.getenv("VAULT_PATH"), 
-              help="Path to Obsidian vault (default: VAULT_PATH env var)")
+              default=None, 
+              help="Path to Obsidian vault (default: auto-detect from config)")
 @click.option("--db-path", help="Path to the Kuzu database file (default: .kineviz_graph/database/knowledge_graph.kz)")
 @click.option("--query", help="Execute a specific query on the database")
 def main(vault_path: Path, db_path: Optional[str], query: Optional[str]):
     """Step 3: Build Kuzu database from organized CSV files"""
     
-    # Validate vault path
+    # Load configuration
+    config_loader = ConfigLoader()
+    
+    # Auto-detect vault path if not provided
     if not vault_path:
-        console.print("[red]Error: Vault path is required. Set VAULT_PATH environment variable or use --vault-path[/red]")
-        console.print("[yellow]Example: uv run step3_build.py --vault-path '/path/to/vault'[/yellow]")
-        console.print("[yellow]Or set VAULT_PATH in your .env file[/yellow]")
-        sys.exit(1)
+        vault_path_str = config_loader.get_vault_path()
+        if vault_path_str:
+            vault_path = Path(vault_path_str)
+            console.print(f"[cyan]Auto-detected vault path: {vault_path}[/cyan]")
+        else:
+            # Fallback to environment variable
+            vault_path_str = os.getenv("VAULT_PATH")
+            if vault_path_str:
+                vault_path = Path(vault_path_str)
+            else:
+                console.print("[red]Error: Vault path is required. Set vault.path in config.yaml or use --vault-path[/red]")
+                console.print("[yellow]Example: uv run step3_build.py --vault-path '/path/to/vault'[/yellow]")
+                console.print("[yellow]Or configure vault.path in config.yaml[/yellow]")
+                sys.exit(1)
     
     # Set default database path if not provided
     if not db_path:
