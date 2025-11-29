@@ -111,6 +111,48 @@ uv run cli/manage_config.py validate
 - **Entity Resolution**: Handle aliases and name changes
 - **Metadata Support**: Process Obsidian frontmatter and tags
 
+## 📝 Obsidian Notes Guidelines
+
+We use folder paths to organize different types of notes. The `entity_type` is derived from the path when entities are created in the database.
+
+### Folder Structure
+
+| Path Pattern | Entity Type | Notes |
+|--------------|-------------|-------|
+| `**/Persons/**/*.md` | Person | Note title should match person name |
+| `**/Companies/**/*.md` | Company | Note title should match company name |
+| `**/VC/**/*.md` | VC | Note title should match VC name |
+| `**/Persons/VC/*.md` | Person + VC | Entities that are both Person and VC |
+| `**/Companies/VC/*.md` | Company + VC | Entities that are both Company and VC |
+
+### Best Practices
+
+- **Use nested subfolders** to keep information organized (e.g., `Persons/Engineering/`, `Companies/Startups/`)
+- **Match note titles to entity names** for proper entity resolution
+- **Organize supporting content** (events, web research, etc.) under their respective folders
+
+### Example Structure
+
+```
+vault/
+├── Persons/
+│   ├── Engineering/
+│   │   └── John Doe.md
+│   └── VC/
+│       └── Jane Smith.md      # Both Person and VC
+├── Companies/
+│   ├── Startups/
+│   │   └── Acme Corp.md
+│   └── VC/
+│       └── Sequoia Capital.md # Both Company and VC
+├── VC/
+│   └── Andreessen Horowitz.md
+├── Events/
+│   └── TechCrunch Disrupt 2024.md
+└── Research/
+    └── AI Trends Q4 2024.md
+```
+
 ## 📁 Project Structure
 
 ```

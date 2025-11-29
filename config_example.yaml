@@ -43,6 +43,21 @@ database:
   max_connections: 5
   health_check_interval: 60
 
+# Entity Type Extraction Rules
+# Maps path keywords (lowercased) to entity types
+# When a note's path contains any keyword, the corresponding type is added
+# Multiple matches result in comma-separated entity_type list (e.g., "Person,VC")
+entity_types:
+  rules:
+    - keywords: ["people", "person"]
+      type: "Person"
+    - keywords: ["vc"]
+      type: "VC"
+    - keywords: ["company", "companies", "org", "organization"]
+      type: "Company"
+    - keywords: ["family office", "fo"]
+      type: "Family Office"
+
 # Processing Configuration
 processing:
   max_concurrent: 5

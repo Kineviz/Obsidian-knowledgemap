@@ -25,9 +25,13 @@ console = Console()
 
 
 class Step3Builder:
-    def __init__(self, vault_path: Path, db_path: str):
+    def __init__(self, vault_path: Path, db_path: str, config_loader: ConfigLoader = None):
         self.vault_path = vault_path
         self.db_path = db_path
+        self.config_loader = config_loader or ConfigLoader()
+        
+        # Load entity type extraction rules from config
+        self.entity_type_rules = self._load_entity_type_rules()
         
         # Ensure parent directory exists
         db_dir = os.path.dirname(db_path)
@@ -74,6 +78,49 @@ class Step3Builder:
             return template_folder
         return None
 
+    def _load_entity_type_rules(self) -> List[dict]:
+        """Load entity type extraction rules from config"""
+        try:
+            entity_types_config = self.config_loader.get("entity_types", {})
+            rules = entity_types_config.get("rules", []) if entity_types_config else []
+            if rules:
+                console.print(f"[cyan]Loaded {len(rules)} entity type extraction rules[/cyan]")
+            return rules
+        except Exception as e:
+            console.print(f"[yellow]Could not load entity type rules: {e}[/yellow]")
+            return []
+
+    def _extract_entity_types(self, path: str) -> str:
+        """Extract entity types from a note path based on config rules.
+        
+        Args:
+            path: The relative path to the note file
+            
+        Returns:
+            Comma-separated string of entity types (e.g., "Person,VC")
+        """
+        if not self.entity_type_rules:
+            return ""
+        
+        path_lower = path.lower()
+        matched_types = []
+        
+        for rule in self.entity_type_rules:
+            keywords = rule.get("keywords", [])
+            entity_type = rule.get("type", "")
+            
+            if not entity_type:
+                continue
+                
+            # Check if any keyword is in the path
+            for keyword in keywords:
+                if keyword.lower() in path_lower:
+                    if entity_type not in matched_types:
+                        matched_types.append(entity_type)
+                    break  # Only need one keyword match per rule
+        
+        return ",".join(matched_types)
+
     def _init_schema(self) -> None:
         """Initialize the Kuzu database schema"""
         console.print("[cyan]Initializing Kuzu database schema...[/cyan]")
@@ -81,7 +128,7 @@ class Step3Builder:
         # Create node tables
         self.conn.execute("CREATE NODE TABLE IF NOT EXISTS Person(id STRING, label STRING, metadata STRING, PRIMARY KEY(id))")
         self.conn.execute("CREATE NODE TABLE IF NOT EXISTS Company(id STRING, label STRING, metadata STRING, PRIMARY KEY(id))")
-        self.conn.execute("CREATE NODE TABLE IF NOT EXISTS Note(id STRING, label STRING, content STRING, PRIMARY KEY(id))")
+        self.conn.execute("CREATE NODE TABLE IF NOT EXISTS Note(id STRING, label STRING, content STRING, entity_types STRING, PRIMARY KEY(id))")
         
         # Create relationship tables
         self.conn.execute("CREATE REL TABLE IF NOT EXISTS PERSON_TO_PERSON(FROM Person TO Person, relationship STRING)")
@@ -127,9 +174,10 @@ class Step3Builder:
                     {"id": properties["id"], "label": properties["label"], "metadata": metadata}
                 )
             elif table_name == "Note":
+                entity_types = properties.get("entity_types", "")
                 self.conn.execute(
-                    "CREATE (n:Note {id: $id, label: $label, content: $content})",
-                    {"id": properties["id"], "label": properties["label"], "content": properties["content"]}
+                    "CREATE (n:Note {id: $id, label: $label, content: $content, entity_types: $entity_types})",
+                    {"id": properties["id"], "label": properties["label"], "content": properties["content"], "entity_types": entity_types}
                 )
         except Exception as e:
             console.print(f"[red]Error creating {table_name} node: {e}[/red]")
@@ -360,6 +408,8 @@ class Step3Builder:
             note_label = Path(source_file).stem
             # Full path for reading file content
             full_path = self.vault_path / source_file
+            # Extract entity types from path
+            entity_types = self._extract_entity_types(source_file)
             
             # Try to read the actual content of the markdown file
             try:
@@ -375,9 +425,11 @@ class Step3Builder:
                 self._create_node("Note", {
                     "id": note_id,
                     "label": note_label,
-                    "content": note_content
+                    "content": note_content,
+                    "entity_types": entity_types
                 })
-                console.print(f"[green]Created Note: {note_label}[/green]")
+                type_info = f" [{entity_types}]" if entity_types else ""
+                console.print(f"[green]Created Note: {note_label}{type_info}[/green]")
         
         if not source_files:
             # Fallback: create a placeholder note
@@ -389,7 +441,8 @@ class Step3Builder:
                 self._create_node("Note", {
                     "id": note_id,
                     "label": note_label,
-                    "content": note_content
+                    "content": note_content,
+                    "entity_types": ""
                 })
                 console.print(f"[green]Created Note: {note_label}[/green]")
         
@@ -399,6 +452,7 @@ class Step3Builder:
             note_id = source_file
             note_label = Path(source_file).stem
             full_path = self.vault_path / source_file
+            entity_types = self._extract_entity_types(source_file)
             try:
                 if full_path.exists():
                     note_content = full_path.read_text(encoding='utf-8')
@@ -410,7 +464,8 @@ class Step3Builder:
             notes.append({
                 "id": note_id,
                 "label": note_label,
-                "content": note_content
+                "content": note_content,
+                "entity_types": entity_types
             })
         
         return notes
@@ -689,7 +744,7 @@ def main(vault_path: Path, db_path: Optional[str], query: Optional[str]):
         db_path = str(vault_path / ".kineviz_graph" / "database" / "knowledge_graph.kz")
     
     try:
-        builder = Step3Builder(vault_path, db_path)
+        builder = Step3Builder(vault_path, db_path, config_loader)
         
         if query:
             builder.query_database(query)
