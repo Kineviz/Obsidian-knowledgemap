@@ -348,21 +348,23 @@ class Step3Builder:
                     # File is not relative to vault path, skip it
                     continue
             
-            source_files.add(str(md_file))
+            source_files.add(str(md_file.relative_to(self.vault_path)))
         
         console.print(f"[cyan]Found {len(source_files)} markdown files in vault[/cyan]")
         
         # Create Note nodes for each source file
         for source_file in source_files:
-            # Create note ID from file path
+            # Create note ID from relative file path
             note_id = source_file
             # Create label from filename (without extension)
             note_label = Path(source_file).stem
+            # Full path for reading file content
+            full_path = self.vault_path / source_file
             
             # Try to read the actual content of the markdown file
             try:
-                if Path(source_file).exists():
-                    note_content = Path(source_file).read_text(encoding='utf-8')
+                if full_path.exists():
+                    note_content = full_path.read_text(encoding='utf-8')
                 else:
                     note_content = f"Source: {source_file}"
             except Exception as e:
@@ -396,9 +398,10 @@ class Step3Builder:
         for source_file in source_files:
             note_id = source_file
             note_label = Path(source_file).stem
+            full_path = self.vault_path / source_file
             try:
-                if Path(source_file).exists():
-                    note_content = Path(source_file).read_text(encoding='utf-8')
+                if full_path.exists():
+                    note_content = full_path.read_text(encoding='utf-8')
                 else:
                     note_content = f"Source: {source_file}"
             except Exception as e:
@@ -575,9 +578,13 @@ class Step3Builder:
                 if 'source_file' in rel and rel['source_file']:
                     source_file = rel['source_file']
                     
-                    # Convert relative path to absolute path for Note ID lookup
-                    if not Path(source_file).is_absolute():
-                        note_id = str(self.vault_path / source_file)
+                    # Convert to relative path for Note ID lookup
+                    if Path(source_file).is_absolute():
+                        try:
+                            note_id = str(Path(source_file).relative_to(self.vault_path))
+                        except ValueError:
+                            # If path is not relative to vault, use as-is
+                            note_id = source_file
                     else:
                         note_id = source_file
                     
