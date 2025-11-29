@@ -55,7 +55,7 @@ entity_types:
       type: "VC"
     - keywords: ["company", "companies", "org", "organization"]
       type: "Company"
-    - keywords: ["family office", "fo"]
+    - keywords: ["family office", "family", "families"]
       type: "Family Office"
 
 # Processing Configuration
