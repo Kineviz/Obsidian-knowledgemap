@@ -20,6 +20,7 @@ from file_tracker import FileTracker, ChangeType, FileChange
 from step1_extract import Step1Extractor
 from step2_organize import Step2Organizer
 from step3_build import Step3Builder
+from step3b_postprocess import Step3bPostProcessor
 from entity_resolution import EntityResolver
 from metadata_extractor import MetadataExtractor
 
@@ -220,6 +221,24 @@ class ManualTrigger:
             # Don't fail the entire process for entity resolution errors
             console.print("[yellow]Continuing without entity resolution...[/yellow]")
     
+    def _build_database_with_postprocess(self, db_path: str):
+        """Build database and run post-processing in-process (fallback method)"""
+        builder = None
+        processor = None
+        try:
+            builder = Step3Builder(self.vault_path, db_path)
+            builder.build_database()
+            
+            # Run post-processing
+            console.print("[cyan]Running post-processing...[/cyan]")
+            processor = Step3bPostProcessor(self.vault_path, db_path)
+            processor.run()
+        finally:
+            if builder:
+                builder.cleanup()
+            if processor:
+                processor.cleanup()
+
     def build_database(self):
         """Build Kuzu database from organized cache"""
         import time
@@ -308,27 +327,15 @@ class ManualTrigger:
                 console.print(f"[red]Database build failed: {result.stderr}[/red]")
                 # Fallback to in-process build
                 console.print("[yellow]Falling back to in-process build...[/yellow]")
-                builder = Step3Builder(self.vault_path, db_path)
-                try:
-                    builder.build_database()
-                finally:
-                    builder.cleanup()
+                self._build_database_with_postprocess(db_path)
                 
         except subprocess.TimeoutExpired:
             console.print("[red]Database build timed out, falling back to in-process build...[/red]")
-            builder = Step3Builder(self.vault_path, db_path)
-            try:
-                builder.build_database()
-            finally:
-                builder.cleanup()
+            self._build_database_with_postprocess(db_path)
         except Exception as e:
             console.print(f"[red]Error building database in separate process: {e}[/red]")
             console.print("[yellow]Falling back to in-process build...[/yellow]")
-            builder = Step3Builder(self.vault_path, db_path)
-            try:
-                builder.build_database()
-            finally:
-                builder.cleanup()
+            self._build_database_with_postprocess(db_path)
         
         # Restart Kuzu server after building database
         if self.server_manager:

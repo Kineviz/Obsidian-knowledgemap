@@ -716,7 +716,8 @@ class Step3Builder:
               help="Path to Obsidian vault (default: auto-detect from config)")
 @click.option("--db-path", help="Path to the Kuzu database file (default: .kineviz_graph/database/knowledge_graph.kz)")
 @click.option("--query", help="Execute a specific query on the database")
-def main(vault_path: Path, db_path: Optional[str], query: Optional[str]):
+@click.option("--skip-postprocess", is_flag=True, help="Skip post-processing (entity-note linking and entity_types propagation)")
+def main(vault_path: Path, db_path: Optional[str], query: Optional[str], skip_postprocess: bool):
     """Step 3: Build Kuzu database from organized CSV files"""
     
     # Load configuration
@@ -750,6 +751,14 @@ def main(vault_path: Path, db_path: Optional[str], query: Optional[str]):
             builder.query_database(query)
         else:
             builder.build_database()
+            
+            # Run post-processing unless skipped
+            if not skip_postprocess:
+                console.print("\n[bold cyan]Running post-processing...[/bold cyan]\n")
+                from step3b_postprocess import Step3bPostProcessor
+                processor = Step3bPostProcessor(vault_path, db_path)
+                processor.run()
+                processor.cleanup()
             
     except KeyboardInterrupt:
         console.print("\n[yellow]Operation cancelled by user[/yellow]")

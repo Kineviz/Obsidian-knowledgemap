@@ -411,6 +411,7 @@ class VaultMonitor:
             
             # Step 3: Rebuild database (clear and rebuild)
             from step3_build import Step3Builder
+            from step3b_postprocess import Step3bPostProcessor
             db_path = str(self.database_dir / "knowledge_graph.kz")
             
             # Delete existing database to ensure clean rebuild
@@ -423,11 +424,20 @@ class VaultMonitor:
                 console.print("[yellow]Cleared existing database[/yellow]")
             
             builder = Step3Builder(self.vault_path, db_path)
+            processor = None
             try:
                 builder.build_database()
                 console.print("[green]Database rebuilt[/green]")
+                
+                # Run post-processing
+                console.print("[cyan]Running post-processing...[/cyan]")
+                processor = Step3bPostProcessor(self.vault_path, db_path)
+                processor.run()
+                console.print("[green]Post-processing completed[/green]")
             finally:
                 builder.cleanup()
+                if processor:
+                    processor.cleanup()
             
             # Restart Kuzu server after database rebuild
             console.print("[cyan]Restarting Kuzu server...[/cyan]")
@@ -577,13 +587,22 @@ class VaultMonitor:
         # Step 3: Build database
         console.print("[cyan]Step 3: Building database...[/cyan]")
         from step3_build import Step3Builder
+        from step3b_postprocess import Step3bPostProcessor
         db_path = str(self.vault_path / ".kineviz_graph" / "database" / "knowledge_graph.kz")
         builder = Step3Builder(self.vault_path, db_path)
+        processor = None
         try:
             builder.build_database()
+            
+            # Run post-processing
+            console.print("[cyan]Running post-processing...[/cyan]")
+            processor = Step3bPostProcessor(self.vault_path, db_path)
+            processor.run()
         finally:
             # Ensure database connections are closed
             builder.cleanup()
+            if processor:
+                processor.cleanup()
         
         console.print("[green]Full build process completed[/green]")
     
