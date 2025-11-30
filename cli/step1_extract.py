@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 Step 1: Extract relationships from markdown folder to cache/content/
-This step processes markdown files and saves individual CSV files with content hashes.
+This step processes markdown files and saves individual CSV files named by path.
+
+CSV naming: Each markdown file gets a CSV named after its path.
+Example: '30. People/John Smith.md' -> '30._People__John_Smith.csv'
 """
 
 import asyncio
@@ -113,6 +116,32 @@ class Step1Extractor:
         """Calculate SHA256 hash of file content"""
         return hashlib.sha256(file_path.read_bytes()).hexdigest()
 
+    def _normalize_path_to_filename(self, relative_path: Path) -> str:
+        """Convert a relative path to a safe filename for CSV storage.
+        
+        Example: '30. People/John Smith.md' -> '30._People__John_Smith'
+        """
+        # Convert to string and remove .md extension
+        path_str = str(relative_path)
+        if path_str.endswith('.md'):
+            path_str = path_str[:-3]
+        
+        # Replace path separators and spaces with underscores
+        safe_name = path_str.replace('/', '__').replace('\\', '__').replace(' ', '_')
+        
+        # Remove or replace other problematic characters
+        # Keep alphanumeric, underscore, dash, and dot
+        import re
+        safe_name = re.sub(r'[^\w\-.]', '_', safe_name)
+        
+        # Collapse multiple underscores
+        safe_name = re.sub(r'_+', '_', safe_name)
+        
+        # Trim leading/trailing underscores
+        safe_name = safe_name.strip('_')
+        
+        return safe_name
+
     def _parse_frontmatter(self, content: str) -> Tuple[Dict[str, Any], str]:
         """Parse YAML frontmatter from markdown content"""
         if not content.startswith('---'):
@@ -148,52 +177,17 @@ class Step1Extractor:
         
         return frontmatter, content_text
 
-    def _calculate_content_hash(self, content: str) -> str:
-        """Calculate hash of content (excluding metadata)"""
-        _, content_only = self._parse_frontmatter(content)
-        return hashlib.sha256(content_only.encode('utf-8')).hexdigest()
-
-    def _calculate_metadata_hash(self, content: str) -> str:
-        """Calculate hash of metadata section only"""
-        frontmatter, _ = self._parse_frontmatter(content)
-        import json
-        # Convert non-serializable objects to strings for JSON serialization
-        serializable_frontmatter = self._make_serializable(frontmatter)
-        metadata_str = json.dumps(serializable_frontmatter, sort_keys=True)
-        return hashlib.sha256(metadata_str.encode('utf-8')).hexdigest()
-    
-    def _make_serializable(self, obj: Any) -> Any:
-        """Convert non-serializable objects to strings for JSON serialization."""
-        if isinstance(obj, dict):
-            return {key: self._make_serializable(value) for key, value in obj.items()}
-        elif isinstance(obj, list):
-            return [self._make_serializable(item) for item in obj]
-        elif hasattr(obj, 'isoformat'):  # datetime objects
-            return obj.isoformat()
-        elif hasattr(obj, '__str__') and not isinstance(obj, (str, int, float, bool, type(None))):
-            return str(obj)
-        else:
-            return obj
+    def _get_csv_path_for_file(self, file_path: Path) -> Path:
+        """Get the CSV path for a given markdown file (pathname-based)."""
+        relative_path = file_path.relative_to(self.vault_path)
+        safe_name = self._normalize_path_to_filename(relative_path)
+        return self._get_content_dir() / f"{safe_name}.csv"
 
     def _find_existing_csv(self, file_path: Path) -> Optional[Path]:
-        """Find existing CSV file for this content hash"""
-        content_hash = self._get_file_hash(file_path)
-        content_dir = self._get_content_dir()
-        
-        # Look for existing CSV with this content hash
-        for csv_file in content_dir.glob(f"{content_hash}_*.csv"):
-            return csv_file
-        return None
-
-    def _find_existing_content_csv(self, file_path: Path) -> Optional[Path]:
-        """Find existing CSV file for this content hash (excluding metadata)"""
-        content = file_path.read_text(encoding='utf-8')
-        content_hash = self._calculate_content_hash(content)
-        content_dir = self._get_content_dir()
-        
-        # Look for existing CSV with this content hash
-        for csv_file in content_dir.glob(f"{content_hash}_*.csv"):
-            return csv_file
+        """Find existing CSV file for this markdown file (pathname-based)."""
+        csv_path = self._get_csv_path_for_file(file_path)
+        if csv_path.exists():
+            return csv_path
         return None
 
     async def _extract_relationships_from_text(self, text: str, source_file: str) -> List[Relationship]:
@@ -224,21 +218,22 @@ class Step1Extractor:
             
             try:
                 result = RelationshipResponse.model_validate_json(cleaned_json)
+                relationships = result.relationships
             except Exception as validation_error:
                 # Try to salvage partial relationships from incomplete responses
-                partial_rels = self._extract_partial_relationships(cleaned_json)
-                if partial_rels:
-                    console.print(f"[yellow]Recovered {len(partial_rels)} partial relationships[/yellow]")
-                    return partial_rels
-                console.print(f"[red]Error extracting relationships: {validation_error}[/red]")
-                return []
+                relationships = self._extract_partial_relationships(cleaned_json)
+                if relationships:
+                    console.print(f"[yellow]Recovered {len(relationships)} partial relationships[/yellow]")
+                else:
+                    console.print(f"[red]Error extracting relationships: {validation_error}[/red]")
+                    return []
             
-            # Add source file info to each relationship
-            for rel in result.relationships:
+            # Add source file info to each relationship (both normal and partial)
+            for rel in relationships:
                 rel.source_file = source_file
                 rel.extracted_at = "2024-01-01T00:00:00Z"  # Default timestamp
                 
-            return result.relationships
+            return relationships
 
         except Exception as e:
             console.print(f"[red]Error extracting relationships: {e}[/red]")
@@ -294,12 +289,9 @@ class Step1Extractor:
         return content
 
     def _save_relationships_to_csv(self, file_path: Path, relationships: List[Relationship]) -> str:
-        """Save relationships to CSV file with content hash (excluding metadata)"""
-        content = file_path.read_text(encoding='utf-8')
-        content_hash = self._calculate_content_hash(content)
-        timestamp = "2024-01-01T00-00-00Z"  # Default timestamp
-        csv_filename = f"{content_hash}_{timestamp}.csv"
-        csv_path = self._get_content_dir() / csv_filename
+        """Save relationships to CSV file (pathname-based naming)."""
+        csv_path = self._get_csv_path_for_file(file_path)
+        csv_filename = csv_path.name
         
         with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
             writer = csv.writer(csvfile)
@@ -319,7 +311,7 @@ class Step1Extractor:
         return csv_filename
 
     async def _process_file(self, file_path: Path) -> None:
-        """Process a single markdown file with metadata/content separation"""
+        """Process a single markdown file and extract relationships."""
         # Check if file should be processed (template exclusion)
         try:
             relative_path = file_path.relative_to(self.vault_path)
@@ -341,15 +333,10 @@ class Step1Extractor:
             content = file_path.read_text(encoding='utf-8')
             relative_path = file_path.relative_to(self.vault_path)
             
-            # Calculate hashes
-            file_hash = self._get_file_hash(file_path)
-            content_hash = self._calculate_content_hash(content)
-            metadata_hash = self._calculate_metadata_hash(content)
-            
-            # Check if we already have a CSV for this content (excluding metadata)
-            existing_csv = self._find_existing_content_csv(file_path)
+            # Check if we already have a CSV for this file (pathname-based)
+            existing_csv = self._find_existing_csv(file_path)
             if existing_csv:
-                console.print(f"[yellow]Skipping {file_path} - content unchanged (metadata may have changed)[/yellow]")
+                console.print(f"[yellow]Skipping {file_path} - already processed (CSV exists)[/yellow]")
                 return
             
             # Parse frontmatter and get content only

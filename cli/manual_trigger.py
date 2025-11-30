@@ -37,10 +37,24 @@ class ManualTrigger:
         self.db_input_dir = self.vault_path / ".kineviz_graph" / "cache" / "db_input"
         self.database_dir = self.vault_path / ".kineviz_graph" / "database"
         
+        # Initialize Obsidian config reader for template exclusion
+        from obsidian_config_reader import ObsidianConfigReader
+        self.obsidian_config = ObsidianConfigReader(self.vault_path)
+        self.template_folder = self._get_template_folder()
+        
         # Ensure directories exist
         self.content_dir.mkdir(parents=True, exist_ok=True)
         self.db_input_dir.mkdir(parents=True, exist_ok=True)
         self.database_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _get_template_folder(self) -> str:
+        """Get template folder path from Obsidian configuration"""
+        if self.obsidian_config.is_templates_enabled():
+            template_folder = self.obsidian_config.get_template_folder()
+            if template_folder:
+                console.print(f"[cyan]Templates enabled, excluding folder: {template_folder}[/cyan]")
+            return template_folder
+        return None
     
     def detect_changes(self) -> tuple[List[FileChange], List[Path]]:
         """Detect file changes and return changes and files to process"""
@@ -63,45 +77,70 @@ class ManualTrigger:
         
         return changes, files_to_process
     
+    def _normalize_path_to_filename(self, relative_path: Path) -> str:
+        """Convert a relative path to a safe filename for CSV lookup.
+        
+        Must match step1_extract.py's normalization exactly.
+        Example: '30. People/John Smith.md' -> '30._People__John_Smith'
+        """
+        import re
+        
+        # Convert to string and remove .md extension
+        path_str = str(relative_path)
+        if path_str.endswith('.md'):
+            path_str = path_str[:-3]
+        
+        # Replace path separators and spaces with underscores
+        safe_name = path_str.replace('/', '__').replace('\\', '__').replace(' ', '_')
+        
+        # Remove or replace other problematic characters
+        safe_name = re.sub(r'[^\w\-.]', '_', safe_name)
+        
+        # Collapse multiple underscores
+        safe_name = re.sub(r'_+', '_', safe_name)
+        
+        # Trim leading/trailing underscores
+        safe_name = safe_name.strip('_')
+        
+        return safe_name
+    
     def cleanup_csv_cache(self):
-        """Clean up orphaned CSV files that don't correspond to existing markdown files"""
+        """Clean up orphaned CSV files that don't correspond to existing markdown files.
+        
+        With pathname-based CSV naming, orphan detection is simple:
+        - Build set of expected CSV names from vault markdown files
+        - Any CSV not in this set is orphaned
+        """
         console.print("[cyan]Cleaning up CSV cache...[/cyan]")
         
-        # Get all markdown files in vault
-        vault_files = set()
+        # Build set of expected CSV filenames from vault markdown files
+        expected_csv_names = set()
+        
         for md_file in self.vault_path.rglob("*.md"):
-            # Skip files in hidden directories (starting with .)
+            # Skip files in hidden directories
             if any(part.startswith('.') for part in md_file.relative_to(self.vault_path).parts):
                 continue
-            vault_files.add(str(md_file.relative_to(self.vault_path)))
+            
+            # Skip template folder
+            if self.template_folder:
+                try:
+                    relative_path = md_file.relative_to(self.vault_path)
+                    if str(relative_path).startswith(self.template_folder + "/"):
+                        continue
+                except ValueError:
+                    continue
+            
+            # Calculate expected CSV name for this file
+            relative_path = md_file.relative_to(self.vault_path)
+            expected_csv_name = self._normalize_path_to_filename(relative_path)
+            expected_csv_names.add(expected_csv_name)
         
-        # Get all CSV files and check which ones are orphaned
+        # Find orphaned CSVs (those not matching any vault file)
         orphaned_csvs = []
         for csv_file in self.content_dir.glob("*.csv"):
-            try:
-                with open(csv_file, 'r', encoding='utf-8') as f:
-                    reader = csv_module.DictReader(f)
-                    has_valid_source = False
-                    for row in reader:
-                        if 'source_file' in row and row['source_file']:
-                            source_file = row['source_file'].strip()
-                            if source_file:
-                                # Convert to relative path if needed
-                                if not Path(source_file).is_absolute():
-                                    rel_path = source_file
-                                else:
-                                    rel_path = str(Path(source_file).relative_to(self.vault_path))
-                                
-                                if rel_path in vault_files:
-                                    has_valid_source = True
-                                    break
-                    
-                    # If no valid source file found, mark as orphaned
-                    if not has_valid_source:
-                        orphaned_csvs.append(csv_file)
-            except Exception as e:
-                console.print(f"[yellow]Could not read CSV file {csv_file.name}: {e}[/yellow]")
-                continue
+            csv_stem = csv_file.stem  # filename without .csv
+            if csv_stem not in expected_csv_names:
+                orphaned_csvs.append(csv_file)
         
         # Remove orphaned CSV files
         for csv_file in orphaned_csvs:

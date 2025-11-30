@@ -155,7 +155,7 @@ class Step3bPostProcessor:
 
     def propagate_entity_types(self) -> None:
         """Propagate entity_types from Note nodes to linked Person/Company nodes"""
-        console.print("[cyan]Step 3: Propagating entity_types from Notes to entities...[/cyan]")
+        console.print("[cyan]Step 4: Propagating entity_types from Notes to entities...[/cyan]")
         
         # Update Person nodes with entity_types from linked Notes
         try:
@@ -182,6 +182,148 @@ class Step3bPostProcessor:
             console.print(f"[green]  ✓ Updated entity_types for {company_update_count} Company nodes[/green]")
         except Exception as e:
             console.print(f"[red]  ✗ Error updating Company entity_types: {e}[/red]")
+
+    def create_missing_entities_from_notes(self) -> None:
+        """
+        Create Person/Company nodes for Notes that should have them but don't.
+        
+        If a Note has entity_types containing "Person" but no PERSON_NOTE relationship,
+        create a Person node with the same label and link them.
+        Same for Company.
+        """
+        console.print("[cyan]Step 3: Creating missing entities from orphan notes...[/cyan]")
+        
+        # Find Notes with "Person" in entity_types but no PERSON_NOTE relationship
+        try:
+            # First, find orphan Person notes
+            result = self.conn.execute("""
+                MATCH (n:Note)
+                WHERE n.entity_types CONTAINS 'Person'
+                AND NOT EXISTS {
+                    MATCH (p:Person)-[:PERSON_NOTE]->(n)
+                }
+                RETURN n.id as note_id, n.label as label, n.entity_types as entity_types
+            """)
+            
+            orphan_person_notes = list(result)
+            
+            if orphan_person_notes:
+                console.print(f"  Found {len(orphan_person_notes)} Person notes without Person nodes")
+                
+                created_count = 0
+                for row in orphan_person_notes:
+                    note_id = row[0]
+                    label = row[1]
+                    entity_types = row[2] or ""
+                    
+                    # Check if Person with this label already exists
+                    existing = self.conn.execute("""
+                        MATCH (p:Person)
+                        WHERE lower(p.label) = lower($label)
+                        RETURN p.id
+                    """, {"label": label})
+                    existing_list = list(existing)
+                    
+                    if existing_list:
+                        # Person exists, just create the relationship
+                        person_id = existing_list[0][0]
+                        try:
+                            self.conn.execute("""
+                                MATCH (p:Person {id: $person_id}), (n:Note {id: $note_id})
+                                CREATE (p)-[:PERSON_NOTE]->(n)
+                            """, {"person_id": person_id, "note_id": note_id})
+                        except Exception:
+                            pass  # Relationship might already exist
+                    else:
+                        # Create new Person node
+                        person_id = f"person_{label.lower().replace(' ', '_').replace('.', '').replace(',', '')}"
+                        try:
+                            self.conn.execute("""
+                                CREATE (p:Person {id: $id, label: $label, metadata: '', entity_types: $entity_types})
+                            """, {"id": person_id, "label": label, "entity_types": entity_types})
+                            
+                            # Create relationship
+                            self.conn.execute("""
+                                MATCH (p:Person {id: $person_id}), (n:Note {id: $note_id})
+                                CREATE (p)-[:PERSON_NOTE]->(n)
+                            """, {"person_id": person_id, "note_id": note_id})
+                            created_count += 1
+                        except Exception as e:
+                            console.print(f"    [yellow]⚠ Could not create Person '{label}': {e}[/yellow]")
+                
+                console.print(f"[green]  ✓ Created {created_count} new Person nodes from orphan notes[/green]")
+            else:
+                console.print("[green]  ✓ No orphan Person notes found[/green]")
+                
+        except Exception as e:
+            console.print(f"[red]  ✗ Error processing Person orphan notes: {e}[/red]")
+        
+        # Find Notes with "Company" or "Family Office" or "VC" in entity_types but no COMPANY_NOTE relationship
+        try:
+            # Find orphan Company/FO/VC notes
+            result = self.conn.execute("""
+                MATCH (n:Note)
+                WHERE (n.entity_types CONTAINS 'Company' 
+                       OR n.entity_types CONTAINS 'Family Office'
+                       OR n.entity_types CONTAINS 'VC')
+                AND NOT EXISTS {
+                    MATCH (c:Company)-[:COMPANY_NOTE]->(n)
+                }
+                RETURN n.id as note_id, n.label as label, n.entity_types as entity_types
+            """)
+            
+            orphan_company_notes = list(result)
+            
+            if orphan_company_notes:
+                console.print(f"  Found {len(orphan_company_notes)} Company/FO/VC notes without Company nodes")
+                
+                created_count = 0
+                for row in orphan_company_notes:
+                    note_id = row[0]
+                    label = row[1]
+                    entity_types = row[2] or ""
+                    
+                    # Check if Company with this label already exists
+                    existing = self.conn.execute("""
+                        MATCH (c:Company)
+                        WHERE lower(c.label) = lower($label)
+                        RETURN c.id
+                    """, {"label": label})
+                    existing_list = list(existing)
+                    
+                    if existing_list:
+                        # Company exists, just create the relationship
+                        company_id = existing_list[0][0]
+                        try:
+                            self.conn.execute("""
+                                MATCH (c:Company {id: $company_id}), (n:Note {id: $note_id})
+                                CREATE (c)-[:COMPANY_NOTE]->(n)
+                            """, {"company_id": company_id, "note_id": note_id})
+                        except Exception:
+                            pass  # Relationship might already exist
+                    else:
+                        # Create new Company node
+                        company_id = f"company_{label.lower().replace(' ', '_').replace('.', '').replace(',', '')}"
+                        try:
+                            self.conn.execute("""
+                                CREATE (c:Company {id: $id, label: $label, metadata: '', entity_types: $entity_types})
+                            """, {"id": company_id, "label": label, "entity_types": entity_types})
+                            
+                            # Create relationship
+                            self.conn.execute("""
+                                MATCH (c:Company {id: $company_id}), (n:Note {id: $note_id})
+                                CREATE (c)-[:COMPANY_NOTE]->(n)
+                            """, {"company_id": company_id, "note_id": note_id})
+                            created_count += 1
+                        except Exception as e:
+                            console.print(f"    [yellow]⚠ Could not create Company '{label}': {e}[/yellow]")
+                
+                console.print(f"[green]  ✓ Created {created_count} new Company nodes from orphan notes[/green]")
+            else:
+                console.print("[green]  ✓ No orphan Company/FO/VC notes found[/green]")
+                
+        except Exception as e:
+            console.print(f"[red]  ✗ Error processing Company orphan notes: {e}[/red]")
 
     def show_summary(self) -> None:
         """Show summary of entity_types distribution"""
@@ -255,15 +397,21 @@ class Step3bPostProcessor:
         console.print("[bold cyan]Starting post-processing...[/bold cyan]\n")
         start_time = time.time()
         
-        # Step 1: Alter schema
+        # Step 1: Alter schema (add entity_types column, create relationship tables)
         self.alter_schema()
         console.print()
         
-        # Step 2: Create entity-note links
+        # Step 2: Create entity-note links by matching existing entity labels to note labels
         self.create_entity_note_links()
         console.print()
         
-        # Step 3: Propagate entity_types
+        # Step 3: Create missing entities from orphan notes
+        # (Notes with entity_types but no corresponding Person/Company node)
+        self.create_missing_entities_from_notes()
+        console.print()
+        
+        # Step 4: Propagate entity_types from Notes to all linked Person/Company nodes
+        # (This must come AFTER creating missing entities so they get their types too)
         self.propagate_entity_types()
         console.print()
         
