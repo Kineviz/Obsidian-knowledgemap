@@ -35,8 +35,15 @@ uv run step4_monitor.py
 The system provides a REST API for accessing your knowledge graph:
 
 ```bash
-# Query the graph
-curl "http://localhost:7001/cypher?query=MATCH (n) RETURN n LIMIT 10"
+# Query the graph (POST to /kuzudb/{database_name})
+curl -X POST "http://localhost:7001/kuzudb/kuzu_db" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "MATCH (n) RETURN n LIMIT 10"}'
+
+# Get schema
+curl -X POST "http://localhost:7001/kuzudb/kuzu_db" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "CALL SCHEMA"}'
 
 # Upload a markdown file
 curl -X POST "http://localhost:7001/save-markdown" \
@@ -47,7 +54,10 @@ curl -X POST "http://localhost:7001/save-markdown" \
 ## 📋 API Endpoints
 
 ### Graph Query
-- **GET** `/cypher?query={cypher_query}` - Execute Cypher queries
+- **POST** `/kuzudb/{name}` - Execute Cypher queries
+  ```json
+  {"query": "MATCH (n) RETURN n LIMIT 10"}
+  ```
 - **GET** `/health` - Health check
 - **GET** `/debug/crashes` - Debug information
 

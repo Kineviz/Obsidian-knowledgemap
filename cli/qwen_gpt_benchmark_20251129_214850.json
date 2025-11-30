@@ -1,0 +1,472 @@
+{
+  "timestamp": "20251129_214850",
+  "test_document_length": 1857,
+  "expected_relationships_count": 14,
+  "results": [
+    {
+      "model": "OpenAI GPT-4o-mini",
+      "response_time_seconds": 16.205552101135254,
+      "success": true,
+      "error": null,
+      "relationships_extracted": 17,
+      "precision": 0.7647058823529411,
+      "recall": 0.9285714285714286,
+      "f1_score": 0.8387096774193549,
+      "token_count": 1481,
+      "extracted_relationships": [
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "works_at",
+          "target_category": "Company",
+          "target_label": "TechFlow"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Sarah Johnson",
+          "relationship": "works_at",
+          "target_category": "Company",
+          "target_label": "CloudSync Inc"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Dr. Mike Rodriguez",
+          "relationship": "works_at",
+          "target_category": "Company",
+          "target_label": "TechFlow"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Dr. Mike Rodriguez",
+          "relationship": "teaches_at",
+          "target_category": "Company",
+          "target_label": "Stanford University"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "married_to",
+          "target_category": "Person",
+          "target_label": "Sarah Johnson"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "cofounded",
+          "target_category": "Company",
+          "target_label": "TechFlow"
+        },
+        {
+          "source_category": "Company",
+          "source_label": "TechFlow",
+          "relationship": "partners_with",
+          "target_category": "Company",
+          "target_label": "Google Cloud"
+        },
+        {
+          "source_category": "Company",
+          "source_label": "TechFlow",
+          "relationship": "partners_with",
+          "target_category": "Company",
+          "target_label": "Microsoft Azure"
+        },
+        {
+          "source_category": "Company",
+          "source_label": "CloudSync Inc",
+          "relationship": "partners_with",
+          "target_category": "Company",
+          "target_label": "Amazon Web Services"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "graduated_from",
+          "target_category": "Company",
+          "target_label": "Stanford University"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Sarah Johnson",
+          "relationship": "graduated_from",
+          "target_category": "Company",
+          "target_label": "UC Berkeley"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "previously_worked_at",
+          "target_category": "Company",
+          "target_label": "Google"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Sarah Johnson",
+          "relationship": "previously_worked_at",
+          "target_category": "Company",
+          "target_label": "Microsoft"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Dr. Mike Rodriguez",
+          "relationship": "advises",
+          "target_category": "Company",
+          "target_label": "CloudSync Inc"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "mentioned",
+          "target_category": "Person",
+          "target_label": "Alex Chen"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Sarah Johnson",
+          "relationship": "mentioned",
+          "target_category": "Person",
+          "target_label": "Sarah Johnson"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Dr. Mike Rodriguez",
+          "relationship": "mentioned",
+          "target_category": "Person",
+          "target_label": "Dr. Mike Rodriguez"
+        }
+      ]
+    },
+    {
+      "model": "Qwen3:4b (bsrs-mac-studio)",
+      "response_time_seconds": 7.789650201797485,
+      "success": true,
+      "error": null,
+      "relationships_extracted": 14,
+      "precision": 0.7857142857142857,
+      "recall": 0.7857142857142857,
+      "f1_score": 0.7857142857142857,
+      "token_count": 572,
+      "extracted_relationships": [
+        {
+          "source": "Alex Chen",
+          "target": "TechFlow",
+          "relationship": "CEO",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "CloudSync Inc",
+          "relationship": "VP_OF_PRODUCT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "TechFlow",
+          "relationship": "CSO",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "Stanford University",
+          "relationship": "PROFESSOR",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Sarah Johnson",
+          "relationship": "MARRIED_TO",
+          "source_category": "Person",
+          "target_category": "Person"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Dr. Mike Rodriguez",
+          "relationship": "CO_FOUNDER",
+          "source_category": "Person",
+          "target_category": "Person"
+        },
+        {
+          "source": "TechFlow",
+          "target": "google_cloud",
+          "relationship": "PARTNERS_WITH",
+          "source_category": "Company",
+          "target_category": "Unknown"
+        },
+        {
+          "source": "TechFlow",
+          "target": "microsoft_azure",
+          "relationship": "PARTNERS_WITH",
+          "source_category": "Company",
+          "target_category": "Unknown"
+        },
+        {
+          "source": "CloudSync Inc",
+          "target": "Amazon Web Services",
+          "relationship": "PARTNERS_WITH",
+          "source_category": "Company",
+          "target_category": "Company"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Stanford University",
+          "relationship": "GRADUATED_FROM",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "uc_berkeley",
+          "relationship": "GRADUATED_FROM",
+          "source_category": "Person",
+          "target_category": "Unknown"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Google",
+          "relationship": "PREVIOUSLY_WORKED_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "Microsoft",
+          "relationship": "PREVIOUSLY_WORKED_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "CloudSync Inc",
+          "relationship": "ADVISOR",
+          "source_category": "Person",
+          "target_category": "Company"
+        }
+      ]
+    },
+    {
+      "model": "Qwen3:8b (bsrs-mac-studio)",
+      "response_time_seconds": 13.408803939819336,
+      "success": true,
+      "error": null,
+      "relationships_extracted": 14,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "token_count": 692,
+      "extracted_relationships": [
+        {
+          "source": "Alex Chen",
+          "target": "TechFlow",
+          "relationship": "CEO_OF",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "CloudSync Inc",
+          "relationship": "VP_OF",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "TechFlow",
+          "relationship": "CSO_OF",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "Stanford University",
+          "relationship": "PROFESSOR_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Sarah Johnson",
+          "relationship": "MARRIED_TO",
+          "source_category": "Person",
+          "target_category": "Person"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Dr. Mike Rodriguez",
+          "relationship": "COFOUNDER_OF",
+          "source_category": "Person",
+          "target_category": "Person"
+        },
+        {
+          "source": "TechFlow",
+          "target": "Google Cloud",
+          "relationship": "PARTNER_OF",
+          "source_category": "Company",
+          "target_category": "Company"
+        },
+        {
+          "source": "TechFlow",
+          "target": "Microsoft Azure",
+          "relationship": "PARTNER_OF",
+          "source_category": "Company",
+          "target_category": "Company"
+        },
+        {
+          "source": "CloudSync Inc",
+          "target": "Amazon Web Services",
+          "relationship": "PARTNER_OF",
+          "source_category": "Company",
+          "target_category": "Company"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Stanford University",
+          "relationship": "GRADUATED_FROM",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "UC Berkeley",
+          "relationship": "GRADUATED_FROM",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Google",
+          "relationship": "PREVIOUSLY_WORKED_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "Microsoft",
+          "relationship": "PREVIOUSLY_WORKED_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "CloudSync Inc",
+          "relationship": "ADVISOR_OF",
+          "source_category": "Person",
+          "target_category": "Company"
+        }
+      ]
+    },
+    {
+      "model": "Qwen3:14b (bsrs-mac-studio)",
+      "response_time_seconds": 19.33028793334961,
+      "success": true,
+      "error": null,
+      "relationships_extracted": 14,
+      "precision": 0.9285714285714286,
+      "recall": 0.9285714285714286,
+      "f1_score": 0.9285714285714286,
+      "token_count": 621,
+      "extracted_relationships": [
+        {
+          "source": "Alex Chen",
+          "target": "TechFlow",
+          "relationship": "CEO_OF",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "CloudSync Inc",
+          "relationship": "VP_OF_PRODUCT_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "TechFlow",
+          "relationship": "CSO_OF",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "Stanford University",
+          "relationship": "PROFESSOR_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Sarah Johnson",
+          "relationship": "MARRIED_TO",
+          "source_category": "Person",
+          "target_category": "Person"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Dr. Mike Rodriguez",
+          "relationship": "CO_FOUNDED",
+          "source_category": "Person",
+          "target_category": "Person"
+        },
+        {
+          "source": "TechFlow",
+          "target": "Google Cloud",
+          "relationship": "PARTNERS_WITH",
+          "source_category": "Company",
+          "target_category": "Company"
+        },
+        {
+          "source": "TechFlow",
+          "target": "Microsoft Azure",
+          "relationship": "PARTNERS_WITH",
+          "source_category": "Company",
+          "target_category": "Company"
+        },
+        {
+          "source": "CloudSync Inc",
+          "target": "Amazon Web Services",
+          "relationship": "PARTNERS_WITH",
+          "source_category": "Company",
+          "target_category": "Company"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Stanford University",
+          "relationship": "GRADUATED_FROM",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "uc_berkeley",
+          "relationship": "GRADUATED_FROM",
+          "source_category": "Person",
+          "target_category": "Unknown"
+        },
+        {
+          "source": "Alex Chen",
+          "target": "Google",
+          "relationship": "PREVIOUSLY_WORKED_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Sarah Johnson",
+          "target": "Microsoft",
+          "relationship": "PREVIOUSLY_WORKED_AT",
+          "source_category": "Person",
+          "target_category": "Company"
+        },
+        {
+          "source": "Dr. Mike Rodriguez",
+          "target": "CloudSync Inc",
+          "relationship": "ADVISOR_TO",
+          "source_category": "Person",
+          "target_category": "Company"
+        }
+      ]
+    }
+  ]
+}

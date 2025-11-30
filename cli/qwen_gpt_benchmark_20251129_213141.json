@@ -1,0 +1,175 @@
+{
+  "timestamp": "20251129_213141",
+  "test_document_length": 1857,
+  "expected_relationships_count": 14,
+  "results": [
+    {
+      "model": "OpenAI GPT-4o-mini",
+      "response_time_seconds": 17.19238591194153,
+      "success": true,
+      "error": null,
+      "relationships_extracted": 17,
+      "precision": 0.7647058823529411,
+      "recall": 0.9285714285714286,
+      "f1_score": 0.8387096774193549,
+      "token_count": 1481,
+      "extracted_relationships": [
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "works_at",
+          "target_category": "Company",
+          "target_label": "TechFlow"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Sarah Johnson",
+          "relationship": "works_at",
+          "target_category": "Company",
+          "target_label": "CloudSync Inc"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Dr. Mike Rodriguez",
+          "relationship": "works_at",
+          "target_category": "Company",
+          "target_label": "TechFlow"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Dr. Mike Rodriguez",
+          "relationship": "teaches_at",
+          "target_category": "Company",
+          "target_label": "Stanford University"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "married_to",
+          "target_category": "Person",
+          "target_label": "Sarah Johnson"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "cofounded",
+          "target_category": "Company",
+          "target_label": "TechFlow"
+        },
+        {
+          "source_category": "Company",
+          "source_label": "TechFlow",
+          "relationship": "partners_with",
+          "target_category": "Company",
+          "target_label": "Google Cloud"
+        },
+        {
+          "source_category": "Company",
+          "source_label": "TechFlow",
+          "relationship": "partners_with",
+          "target_category": "Company",
+          "target_label": "Microsoft Azure"
+        },
+        {
+          "source_category": "Company",
+          "source_label": "CloudSync Inc",
+          "relationship": "partners_with",
+          "target_category": "Company",
+          "target_label": "Amazon Web Services"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "graduated_from",
+          "target_category": "Company",
+          "target_label": "Stanford University"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Sarah Johnson",
+          "relationship": "graduated_from",
+          "target_category": "Company",
+          "target_label": "UC Berkeley"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "previously_worked_at",
+          "target_category": "Company",
+          "target_label": "Google"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Sarah Johnson",
+          "relationship": "previously_worked_at",
+          "target_category": "Company",
+          "target_label": "Microsoft"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Dr. Mike Rodriguez",
+          "relationship": "advises",
+          "target_category": "Company",
+          "target_label": "CloudSync Inc"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Alex Chen",
+          "relationship": "mentioned",
+          "target_category": "Person",
+          "target_label": "Alex Chen"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Sarah Johnson",
+          "relationship": "mentioned",
+          "target_category": "Person",
+          "target_label": "Sarah Johnson"
+        },
+        {
+          "source_category": "Person",
+          "source_label": "Dr. Mike Rodriguez",
+          "relationship": "mentioned",
+          "target_category": "Person",
+          "target_label": "Dr. Mike Rodriguez"
+        }
+      ]
+    },
+    {
+      "model": "Qwen3:4b (bsrs-mac-studio)",
+      "response_time_seconds": 28.655792713165283,
+      "success": true,
+      "error": null,
+      "relationships_extracted": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "token_count": 2000,
+      "extracted_relationships": []
+    },
+    {
+      "model": "Qwen3:8b (bsrs-mac-studio)",
+      "response_time_seconds": 39.79295516014099,
+      "success": true,
+      "error": null,
+      "relationships_extracted": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "token_count": 2000,
+      "extracted_relationships": []
+    },
+    {
+      "model": "Qwen3:14b (bsrs-mac-studio)",
+      "response_time_seconds": 72.9011058807373,
+      "success": true,
+      "error": null,
+      "relationships_extracted": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1_score": 0.0,
+      "token_count": 2000,
+      "extracted_relationships": []
+    }
+  ]
+}
