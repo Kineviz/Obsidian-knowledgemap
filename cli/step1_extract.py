@@ -225,7 +225,9 @@ class Step1Extractor:
                 if relationships:
                     console.print(f"[yellow]Recovered {len(relationships)} partial relationships[/yellow]")
                 else:
+                    # Find and show the specific problematic relationship
                     console.print(f"[red]Error extracting relationships: {validation_error}[/red]")
+                    self._show_problematic_relationship(cleaned_json)
                     return []
             
             # Add source file info to each relationship (both normal and partial)
@@ -238,6 +240,56 @@ class Step1Extractor:
         except Exception as e:
             console.print(f"[red]Error extracting relationships: {e}[/red]")
             return []
+    
+    def _show_problematic_relationship(self, json_str: str) -> None:
+        """Find and display the specific relationship that failed to parse."""
+        import re
+        
+        # Try to find all relationship objects using regex
+        # Pattern matches: {"source_category": ... } allowing for incomplete objects
+        pattern = r'\{[^{}]*"source_category"[^{}]*\}'
+        
+        # Also try to find incomplete objects at the end
+        incomplete_pattern = r'\{[^{}]*"source_category"[^}]*$'
+        
+        complete_matches = re.findall(pattern, json_str)
+        incomplete_match = re.search(incomplete_pattern, json_str)
+        
+        console.print(f"[yellow]Found {len(complete_matches)} complete relationship objects[/yellow]")
+        
+        # Validate each complete match to find which ones are problematic
+        import json
+        last_valid_idx = -1
+        first_invalid = None
+        
+        for i, match in enumerate(complete_matches):
+            try:
+                obj = json.loads(match)
+                required = ['source_category', 'source_label', 'relationship', 'target_category', 'target_label']
+                if all(obj.get(field) for field in required):
+                    last_valid_idx = i
+                else:
+                    if first_invalid is None:
+                        first_invalid = (i, match, "Missing required fields")
+            except json.JSONDecodeError as e:
+                if first_invalid is None:
+                    first_invalid = (i, match, str(e))
+        
+        if first_invalid:
+            idx, match, error = first_invalid
+            console.print(f"[red]❌ Relationship #{idx + 1} is invalid: {error}[/red]")
+            console.print(f"[yellow]{match[:200]}{'...' if len(match) > 200 else ''}[/yellow]")
+        
+        if incomplete_match:
+            console.print(f"[red]❌ Incomplete/truncated relationship at end:[/red]")
+            incomplete_text = incomplete_match.group()
+            console.print(f"[yellow]{incomplete_text[:300]}{'...' if len(incomplete_text) > 300 else ''}[/yellow]")
+        elif not first_invalid:
+            # Show the end of the JSON where the problem likely is
+            console.print(f"[red]❌ JSON truncated or malformed at end:[/red]")
+            console.print(f"[yellow]{repr(json_str[-200:])}[/yellow]")
+        
+        console.print(f"[dim]Total response length: {len(json_str)} chars[/dim]")
     
     def _extract_partial_relationships(self, json_str: str) -> List[Relationship]:
         """Try to extract valid relationships from partially invalid JSON"""
