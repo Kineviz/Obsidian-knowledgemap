@@ -60,6 +60,20 @@ class LLMResponse:
 class LLMClient:
     """Unified LLM client with load balancing and failover"""
     
+    # Qwen3 models require special handling to suppress chain-of-thought
+    QWEN3_MODELS = ['qwen3', 'qwen3:4b', 'qwen3:8b', 'qwen3:14b', 'qwen3:32b', 'qwen3:72b']
+    
+    # Qwen3-specific JSON enforcement (appended to original system prompt)
+    QWEN3_JSON_SUFFIX = """
+
+CRITICAL OUTPUT RULES FOR JSON:
+- Output ONLY valid JSON, no explanation or chain-of-thought
+- ALL 5 FIELDS ARE REQUIRED: source_category, source_label, relationship, target_category, target_label
+- source_category and target_category MUST be exactly "Person" or "Company"
+
+EXAMPLE OUTPUT:
+{"relationships": [{"source_category": "Person", "source_label": "Alex Chen", "relationship": "ceo_of", "target_category": "Company", "target_label": "TechFlow"}]}"""
+    
     def __init__(self):
         # Load configuration
         self.config_loader = get_config_loader()
@@ -78,6 +92,11 @@ class LLMClient:
         )
         self.health_check_task = None
         self._initialize()
+    
+    def _is_qwen3_model(self, model: str) -> bool:
+        """Check if the model is a Qwen3 model that requires special handling"""
+        model_lower = model.lower()
+        return any(qwen in model_lower for qwen in ['qwen3', 'qwen-3'])
     
     def _initialize(self):
         """Initialize the LLM client based on configuration"""
@@ -284,10 +303,15 @@ class LLMClient:
             server.active_connections += 1
             server.total_requests += 1
             
-            # Combine system and user messages for Ollama
-            combined_prompt = self._combine_messages(messages)
             model = self.config_loader.get('llm.ollama.model', 'gemma3:12b')
             timeout = self.config_loader.get('llm.ollama.timeout', 60)
+            
+            # Check if this is a Qwen3 model - use chat API with special handling
+            if self._is_qwen3_model(model):
+                return await self._try_ollama_server_qwen3(server, messages, model, timeout, **kwargs)
+            
+            # Standard Ollama handling for non-Qwen3 models
+            combined_prompt = self._combine_messages(messages)
             
             payload = {
                 "model": model,
@@ -336,6 +360,109 @@ class LLMClient:
             )
         finally:
             server.active_connections = max(0, server.active_connections - 1)
+    
+    async def _try_ollama_server_qwen3(self, server: OllamaServer, messages: List[Dict[str, str]], 
+                                        model: str, timeout: int, **kwargs) -> LLMResponse:
+        """
+        Special handling for Qwen3 models using chat API with JSON format.
+        Qwen3 models require specific prompting to suppress chain-of-thought reasoning.
+        """
+        try:
+            start_time = time.time()
+            
+            # Build messages for Qwen3 - use original system prompt + JSON enforcement
+            qwen_messages = []
+            
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                if role == "system":
+                    # Append Qwen3 JSON enforcement to the original system prompt
+                    qwen_messages.append({
+                        "role": "system",
+                        "content": content + self.QWEN3_JSON_SUFFIX
+                    })
+                elif role == "user":
+                    qwen_messages.append({"role": "user", "content": content})
+                elif role == "assistant":
+                    qwen_messages.append({"role": role, "content": content})
+            
+            # Note: format:json works well for qwen3:8b but causes issues with qwen3:14b
+            # For 14b models, we skip format:json and parse the response manually
+            use_json_format = "14b" not in model.lower() and "32b" not in model.lower() and "72b" not in model.lower()
+            
+            payload = {
+                "model": model,
+                "messages": qwen_messages,
+                "stream": False,
+                "options": {
+                    "temperature": 0,  # Deterministic for structured output
+                    "top_p": 1,
+                    "num_predict": kwargs.get("max_tokens", 4000),
+                    "num_ctx": 8192
+                }
+            }
+            
+            if use_json_format:
+                payload["format"] = "json"  # Force JSON output - works for smaller Qwen3 models
+            
+            # Extract server name for logging
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            logger.info(f"[{server_name}] Qwen3 request: model={model}")
+            
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+                async with session.post(f"{server.url}/api/chat", json=payload) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        content = data.get("message", {}).get("content", "")
+                        response_time = time.time() - start_time
+                        server.response_time = response_time
+                        
+                        # Handle Qwen3 thinking models (14b, 32b, 72b) - extract JSON after </think>
+                        if "</think>" in content:
+                            content = content.split("</think>")[-1].strip()
+                        
+                        # Also try to extract JSON if response contains other text
+                        if content and not content.startswith("{"):
+                            # Find the JSON object
+                            json_start = content.find("{")
+                            json_end = content.rfind("}") + 1
+                            if json_start != -1 and json_end > json_start:
+                                content = content[json_start:json_end]
+                        
+                        logger.info(f"[{server_name}] Qwen3 response: {len(content)} chars in {response_time:.2f}s")
+                        
+                        return LLMResponse(
+                            content=content,
+                            model=model,
+                            provider="ollama",
+                            server_url=server.url,
+                            response_time=response_time,
+                            token_count=data.get("eval_count")
+                        )
+                    else:
+                        error_msg = f"HTTP {response.status}: {await response.text()}"
+                        return LLMResponse(
+                            content="",
+                            model=model,
+                            provider="ollama",
+                            server_url=server.url,
+                            success=False,
+                            error=error_msg
+                        )
+        
+        except Exception as e:
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            logger.error(f"[{server_name}] Qwen3 request failed: {e}")
+            return LLMResponse(
+                content="",
+                model=model,
+                provider="ollama",
+                server_url=server.url,
+                success=False,
+                error=f"[{server_name}] {str(e)}"
+            )
     
     def _combine_messages(self, messages: List[Dict[str, str]]) -> str:
         """Combine system and user messages for Ollama"""

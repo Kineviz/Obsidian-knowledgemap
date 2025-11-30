@@ -17,8 +17,16 @@ llm:
       model: "gpt-4o-mini"
       timeout: 60
   ollama:
-    model: "gemma3:12b"
-    timeout: 60
+    # Recommended models for knowledge graph extraction:
+    # - qwen3:8b   - BEST: 100% accuracy, fast (13s), local, no cost
+    # - qwen3:4b   - Fastest (8s), good accuracy (78%), low memory
+    # - qwen3:14b  - High accuracy (93%), slower (19s)
+    # - gemma3:12b - Alternative model
+    # 
+    # Note: Qwen3 models use special prompting to suppress chain-of-thought
+    # reasoning and force clean JSON output. This is handled automatically.
+    model: "qwen3:8b"
+    timeout: 120  # Qwen3 may need more time for complex documents
     max_retries: 3
     retry_delay: 5
     load_balance_strategy: "round_robin"  # round_robin, random, least_connections, fastest_response

@@ -221,7 +221,17 @@ class Step1Extractor:
 
             # Clean and parse JSON response
             cleaned_json = self._clean_json_response(response.content)
-            result = RelationshipResponse.model_validate_json(cleaned_json)
+            
+            try:
+                result = RelationshipResponse.model_validate_json(cleaned_json)
+            except Exception as validation_error:
+                # Try to salvage partial relationships from incomplete responses
+                partial_rels = self._extract_partial_relationships(cleaned_json)
+                if partial_rels:
+                    console.print(f"[yellow]Recovered {len(partial_rels)} partial relationships[/yellow]")
+                    return partial_rels
+                console.print(f"[red]Error extracting relationships: {validation_error}[/red]")
+                return []
             
             # Add source file info to each relationship
             for rel in result.relationships:
@@ -232,6 +242,28 @@ class Step1Extractor:
 
         except Exception as e:
             console.print(f"[red]Error extracting relationships: {e}[/red]")
+            return []
+    
+    def _extract_partial_relationships(self, json_str: str) -> List[Relationship]:
+        """Try to extract valid relationships from partially invalid JSON"""
+        import json
+        try:
+            data = json.loads(json_str)
+            if not isinstance(data, dict) or 'relationships' not in data:
+                return []
+            
+            valid_rels = []
+            for rel in data.get('relationships', []):
+                # Check all required fields are present
+                required = ['source_category', 'source_label', 'relationship', 'target_category', 'target_label']
+                if all(rel.get(field) for field in required):
+                    try:
+                        valid_rels.append(Relationship(**rel))
+                    except Exception:
+                        pass  # Skip invalid relationships
+            
+            return valid_rels
+        except json.JSONDecodeError:
             return []
     
     def _clean_json_response(self, content: str) -> str:
