@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from rich.console import Console
 from prompt_loader import get_prompt_loader
 from obsidian_config_reader import ObsidianConfigReader
-from llm_client import get_llm_client, close_llm_client, ServerPool
+from llm_client import get_llm_client, close_llm_client
 
 # Load environment variables
 load_dotenv()
@@ -66,9 +66,6 @@ class Step1Extractor:
         
         # LLM client will be initialized when needed
         self.llm_client = None
-        
-        # Shared server pool (initialized in process_vault)
-        self.server_pool = None
             
         # Initialize chunker
         self._init_chunker()
@@ -193,13 +190,12 @@ class Step1Extractor:
             return csv_path
         return None
 
-    async def _extract_relationships_from_text(self, text: str, source_file: str, server=None) -> tuple:
+    async def _extract_relationships_from_text(self, text: str, source_file: str) -> tuple:
         """Extract relationships from text using LLM client.
         
         Args:
             text: The text to extract relationships from
             source_file: Source file path for tracking
-            server: Optional specific server to use (for pool-based processing)
         
         Returns:
             tuple: (relationships: List[Relationship], server_info: str or None)
@@ -215,20 +211,11 @@ class Step1Extractor:
             model_config = prompt_loader.get_model_config("relationship_extraction")
             
             # Generate response using LLM client
-            # If a specific server is provided, use it (for pool-based processing)
-            if server is not None:
-                response = await self.llm_client.generate_on_server(
-                    messages=messages,
-                    server=server,
-                    temperature=model_config["temperature"],
-                    max_tokens=2000
-                )
-            else:
-                response = await self.llm_client.generate(
-                    messages=messages,
-                    temperature=model_config["temperature"],
-                    max_tokens=2000
-                )
+            response = await self.llm_client.generate(
+                messages=messages,
+                temperature=model_config["temperature"],
+                max_tokens=2000
+            )
             
             # Extract server info for logging
             server_info = None
@@ -430,49 +417,27 @@ class Step1Extractor:
             
             console.print(f"[cyan]Created {len(chunks)} chunks from {file_path}[/cyan]")
             
-            # Extract relationships from all chunks using shared server pool
-            # Fast servers finish quickly and handle more tasks naturally
+            # Extract relationships from chunks - SEQUENTIAL processing
+            # This prevents Ollama from being overwhelmed with queued requests
+            # which can cause timeouts and errors
             import time as time_module
             start_time = time_module.time()
             
-            use_pool = self.server_pool is not None
-            
-            async def process_chunk_with_pool(i: int, chunk) -> tuple:
-                """Process a single chunk using shared server pool (wait for available server)"""
-                if use_pool:
-                    # Wait for a server to become available from the shared pool
-                    server = await self.server_pool.acquire()
-                    server_name = server.url.replace("http://", "").replace(":11434", "")
-                    send_time = time_module.time() - start_time
-                    console.print(f"[blue]  ⬆ Chunk {i+1}/{len(chunks)} → {server_name} @ {send_time:.1f}s[/blue]")
-                    
-                    try:
-                        relationships, server_info = await self._extract_relationships_from_text(
-                            chunk.text, str(relative_path), server=server
-                        )
-                    finally:
-                        # Always release server back to shared pool
-                        self.server_pool.release(server)
-                else:
-                    # Fallback: use default load balancing
-                    send_time = time_module.time() - start_time
-                    console.print(f"[blue]  ⬆ Chunk {i+1}/{len(chunks)} sent @ {send_time:.1f}s[/blue]")
-                    relationships, server_info = await self._extract_relationships_from_text(
-                        chunk.text, str(relative_path)
-                    )
+            results = []
+            for i, chunk in enumerate(chunks):
+                send_time = time_module.time() - start_time
+                console.print(f"[blue]  ⬆ Chunk {i+1}/{len(chunks)} sent @ {send_time:.1f}s[/blue]")
+                
+                relationships, server_info = await self._extract_relationships_from_text(
+                    chunk.text, str(relative_path)
+                )
                 
                 done_time = time_module.time() - start_time
                 rel_count = len(relationships) if relationships else 0
                 server_str = f"→ {server_info}" if server_info else ""
                 console.print(f"[green]  ⬇ Chunk {i+1}/{len(chunks)} done @ {done_time:.1f}s {server_str} ({rel_count} rels)[/green]")
                 
-                return i, relationships, server_info
-            
-            # Create tasks for all chunks
-            chunk_tasks = [process_chunk_with_pool(i, chunk) for i, chunk in enumerate(chunks)]
-            
-            # Process chunks (shared pool ensures fast server handles more work)
-            results = await asyncio.gather(*chunk_tasks)
+                results.append((i, relationships, server_info))
             
             # Collect results
             all_relationships = []
@@ -523,24 +488,17 @@ class Step1Extractor:
             console.print("[yellow]No markdown files found[/yellow]")
             return
         
-        # Initialize LLM client and create shared server pool
+        # Initialize LLM client
         if not self.llm_client:
             self.llm_client = await get_llm_client()
         
-        try:
-            self.server_pool = self.llm_client.create_server_pool()
-            await self.server_pool.initialize()
-            num_servers = self.server_pool.available_count()
-            console.print(f"[cyan]🚀 Server pool ready: {num_servers} servers[/cyan]")
-            console.print(f"[cyan]   Fast servers get more tasks automatically[/cyan]")
-        except Exception as e:
-            console.print(f"[yellow]Server pool unavailable ({e}), using default load balancing[/yellow]")
-            self.server_pool = None
+        # Process files sequentially to avoid overwhelming Ollama
+        # Each file's chunks are also processed sequentially
+        # This prevents request piling and timeout errors
+        console.print(f"[cyan]Processing files sequentially (1 chunk at a time to Ollama)[/cyan]")
         
-        # Process all files (pool handles concurrency naturally)
-        # Each task will acquire a server when available, process, release
-        tasks = [self._process_file(file_path) for file_path in markdown_files]
-        await asyncio.gather(*tasks)
+        for file_path in markdown_files:
+            await self._process_file(file_path)
         
         console.print("[green]Step 1 completed: All files processed to .kineviz_graph/cache/content/[/green]")
 
