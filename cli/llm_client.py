@@ -57,6 +57,62 @@ class LLMResponse:
     success: bool = True
     error: Optional[str] = None
 
+
+class ServerPool:
+    """
+    Pool of Ollama servers that dispatches tasks to the first available server.
+    
+    When a server finishes a task, it becomes available immediately.
+    The fastest server naturally handles more tasks because it returns faster.
+    
+    Usage:
+        pool = ServerPool(servers)
+        server = await pool.acquire()
+        try:
+            result = await llm_client.generate_on_server(messages, server)
+        finally:
+            pool.release(server)
+    """
+    
+    def __init__(self, servers: List[OllamaServer]):
+        self._servers = servers
+        self._available = asyncio.Queue()
+        self._initialized = False
+        
+    async def initialize(self):
+        """Initialize the pool by adding all servers to the available queue"""
+        if self._initialized:
+            return
+        # Add servers ordered by response_time (fastest first)
+        # This way, when all servers are available, fastest gets picked first
+        sorted_servers = sorted(self._servers, key=lambda s: s.response_time)
+        for server in sorted_servers:
+            if server.is_healthy:
+                await self._available.put(server)
+        self._initialized = True
+        logger.info(f"Server pool initialized with {self._available.qsize()} servers")
+    
+    async def acquire(self) -> OllamaServer:
+        """
+        Acquire a server from the pool. Blocks until a server is available.
+        The first server to become available is returned.
+        """
+        if not self._initialized:
+            await self.initialize()
+        server = await self._available.get()
+        logger.debug(f"Acquired server: {server.url}")
+        return server
+    
+    def release(self, server: OllamaServer):
+        """Return a server to the pool, making it available for the next task"""
+        self._available.put_nowait(server)
+        logger.debug(f"Released server: {server.url}")
+    
+    def available_count(self) -> int:
+        """Number of currently available servers"""
+        return self._available.qsize()
+
+
 class LLMClient:
     """Unified LLM client with load balancing and failover"""
     
@@ -178,6 +234,67 @@ EXAMPLE OUTPUT:
         """Get list of healthy Ollama servers"""
         return [server for server in self.ollama_servers if server.is_healthy]
     
+    def create_server_pool(self) -> ServerPool:
+        """
+        Create a server pool for work-queue based processing.
+        
+        Use this when you want the fastest server to handle most tasks:
+        - Tasks wait for an available server
+        - Fast server finishes quickly, becomes available for next task
+        - Naturally balances load based on actual server performance
+        
+        Returns:
+            ServerPool instance for acquiring/releasing servers
+        """
+        healthy_servers = self._get_healthy_servers()
+        if not healthy_servers:
+            raise ValueError("No healthy Ollama servers available")
+        return ServerPool(healthy_servers)
+    
+    async def generate_on_server(
+        self, 
+        messages: List[Dict[str, str]], 
+        server: OllamaServer,
+        **kwargs
+    ) -> LLMResponse:
+        """
+        Generate response using a specific Ollama server.
+        
+        Use this with ServerPool.acquire() for work-queue based processing:
+        
+            pool = llm_client.create_server_pool()
+            server = await pool.acquire()
+            try:
+                response = await llm_client.generate_on_server(messages, server)
+            finally:
+                pool.release(server)
+        
+        Args:
+            messages: List of message dicts with 'role' and 'content'
+            server: The specific OllamaServer to use
+            **kwargs: Additional parameters for generation
+        
+        Returns:
+            LLMResponse with the result
+        """
+        server_name = server.url.replace("http://", "").replace(":11434", "")
+        print(f"      📤 Dispatched to {server_name}")
+        
+        try:
+            response = await self._try_ollama_server(server, messages, **kwargs)
+            return response
+        except Exception as e:
+            logger.warning(f"Server {server.url} exception: {e}")
+            server.failed_requests += 1
+            return LLMResponse(
+                content="",
+                model=self.config_loader.get('llm.ollama.model', 'gemma3:12b'),
+                provider="ollama",
+                server_url=server.url,
+                success=False,
+                error=str(e)
+            )
+    
     def _select_server(self) -> Optional[OllamaServer]:
         """Select server based on load balancing strategy"""
         healthy_servers = self._get_healthy_servers()
@@ -271,6 +388,10 @@ EXAMPLE OUTPUT:
                     error=error_msg
                 )
             
+            # Log which server is receiving this request
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            print(f"      📤 Dispatched to {server_name}")
+            
             try:
                 response = await self._try_ollama_server(server, messages, **kwargs)
                 if response.success:
@@ -349,14 +470,42 @@ EXAMPLE OUTPUT:
                             error=error_msg
                         )
         
-        except Exception as e:
+        except asyncio.TimeoutError:
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            error_msg = f"[{server_name}] Request timed out - server may be overloaded"
+            logger.error(error_msg)
             return LLMResponse(
                 content="",
                 model=os.getenv("OLLAMA_MODEL", "gemma3:12b"),
                 provider="ollama",
                 server_url=server.url,
                 success=False,
-                error=str(e)
+                error=error_msg
+            )
+        except aiohttp.ClientConnectorError as e:
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            error_msg = f"[{server_name}] Connection failed: {e.os_error if hasattr(e, 'os_error') else e}"
+            logger.error(error_msg)
+            return LLMResponse(
+                content="",
+                model=os.getenv("OLLAMA_MODEL", "gemma3:12b"),
+                provider="ollama",
+                server_url=server.url,
+                success=False,
+                error=error_msg
+            )
+        except Exception as e:
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            error_type = type(e).__name__
+            error_msg = f"[{server_name}] {error_type}: {str(e) or 'No error details'}"
+            logger.error(error_msg)
+            return LLMResponse(
+                content="",
+                model=os.getenv("OLLAMA_MODEL", "gemma3:12b"),
+                provider="ollama",
+                server_url=server.url,
+                success=False,
+                error=error_msg
             )
         finally:
             server.active_connections = max(0, server.active_connections - 1)
@@ -452,16 +601,54 @@ EXAMPLE OUTPUT:
                             error=error_msg
                         )
         
-        except Exception as e:
+        except asyncio.TimeoutError:
             server_name = server.url.replace("http://", "").replace(":11434", "")
-            logger.error(f"[{server_name}] Qwen3 request failed: {e}")
+            error_msg = f"[{server_name}] Request timed out after {timeout}s - server may be overloaded or model too slow"
+            logger.error(error_msg)
             return LLMResponse(
                 content="",
                 model=model,
                 provider="ollama",
                 server_url=server.url,
                 success=False,
-                error=f"[{server_name}] {str(e)}"
+                error=error_msg
+            )
+        except aiohttp.ClientConnectorError as e:
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            error_msg = f"[{server_name}] Connection failed: {e.os_error if hasattr(e, 'os_error') else e}"
+            logger.error(error_msg)
+            return LLMResponse(
+                content="",
+                model=model,
+                provider="ollama",
+                server_url=server.url,
+                success=False,
+                error=error_msg
+            )
+        except aiohttp.ServerDisconnectedError:
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            error_msg = f"[{server_name}] Server disconnected - may have crashed or restarted"
+            logger.error(error_msg)
+            return LLMResponse(
+                content="",
+                model=model,
+                provider="ollama",
+                server_url=server.url,
+                success=False,
+                error=error_msg
+            )
+        except Exception as e:
+            server_name = server.url.replace("http://", "").replace(":11434", "")
+            error_type = type(e).__name__
+            error_msg = f"[{server_name}] {error_type}: {str(e) or 'No error details'}"
+            logger.error(f"[{server_name}] Qwen3 request failed: {error_msg}")
+            return LLMResponse(
+                content="",
+                model=model,
+                provider="ollama",
+                server_url=server.url,
+                success=False,
+                error=error_msg
             )
     
     def _combine_messages(self, messages: List[Dict[str, str]]) -> str:

@@ -29,7 +29,12 @@ llm:
     timeout: 120  # Qwen3 may need more time for complex documents
     max_retries: 3
     retry_delay: 5
-    load_balance_strategy: "round_robin"  # round_robin, random, least_connections, fastest_response
+    # Note: Primary mode uses SERVER POOL for optimal task distribution:
+    # - Tasks wait for fastest available server
+    # - Fast servers finish quickly → become available → handle more tasks
+    # - No need to manually tune concurrency
+    # load_balance_strategy is only used as fallback if pool unavailable
+    load_balance_strategy: "round_robin"  # Fallback: round_robin, random, least_connections, fastest_response
     health_check:
       interval: 30
       server_timeout: 300
