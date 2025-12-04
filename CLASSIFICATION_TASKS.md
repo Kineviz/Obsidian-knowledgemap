@@ -267,41 +267,72 @@ uv run classification_task_manager.py import-tasks tasks.yaml
 
 ### 4.2 Classification Execution Commands
 
+#### Target Selection (required - choose one)
+
+| Option | Description |
+|--------|-------------|
+| `--note "path/to/note.md"` | Classify a single specific note |
+| `--folder "path/"` | Classify all `.md` files under a folder (recursive) |
+
+#### Run Behavior
+
+| Option | Description |
+|--------|-------------|
+| (default) | Skip notes that already have the `gxr_xxx` key |
+| `--force` | Run always, overwrite existing classification |
+
+#### Examples
+
 ```bash
-# Classify a single note with one task
+# ===== SINGLE NOTE =====
+
+# Classify a single note (skip if already classified)
 uv run classification_task_manager.py run gxr_professional_interests \
   --note "People/John Smith.md"
 
-# Run multiple tasks on a note
-uv run classification_task_manager.py run gxr_professional_interests gxr_personal_interests \
+# Force re-classify a single note (overwrite existing)
+uv run classification_task_manager.py run gxr_professional_interests \
+  --note "People/John Smith.md" \
+  --force
+
+# Run multiple tasks on a single note
+uv run classification_task_manager.py run \
+  gxr_professional_interests \
+  gxr_personal_interests \
+  gxr_is_active_investor \
   --note "People/John Smith.md"
 
-# Run all enabled tasks on a note
-uv run classification_task_manager.py run --all-tasks \
-  --note "People/John Smith.md"
+# ===== FOLDER =====
 
-# Classify all notes in a folder
+# Classify all notes in a folder (skip already classified)
 uv run classification_task_manager.py run gxr_professional_interests \
   --folder "People/"
 
-# Classify all notes in vault
-uv run classification_task_manager.py run gxr_professional_interests --all
-
-# Only classify notes missing this key
+# Force re-classify all notes in a folder
 uv run classification_task_manager.py run gxr_professional_interests \
-  --all \
-  --skip-existing
-
-# Force re-classification (overwrite)
-uv run classification_task_manager.py run gxr_professional_interests \
-  --all \
+  --folder "People/" \
   --force
 
-# Dry run
+# Run multiple tasks on a folder
+uv run classification_task_manager.py run \
+  gxr_professional_interests \
+  gxr_is_active_investor \
+  --folder "People/"
+
+# ===== DRY RUN =====
+
+# Preview what would be classified (no changes made)
 uv run classification_task_manager.py run gxr_professional_interests \
-  --all \
+  --folder "People/" \
   --dry-run
 ```
+
+#### Behavior Summary
+
+| Scenario | Default | With `--force` |
+|----------|---------|----------------|
+| Note has `gxr_xxx` key | SKIP | RUN (overwrite) |
+| Note missing `gxr_xxx` key | RUN | RUN |
 
 ### 4.3 Status and History
 
@@ -496,7 +527,7 @@ Errors are recorded in `classification_runs` table with `status='failed'` and `e
 
 ## 7. Example Use Cases
 
-### Use Case 1: Extract Professional Interests
+### Use Case 1: Extract Professional Interests from People Folder
 
 ```bash
 # Add task
@@ -506,35 +537,45 @@ uv run classification_task_manager.py add-task \
   --prompt "Extract professional interests as comma-separated list" \
   --output-type "list"
 
-# Run on People folder
+# Run on People folder (skips notes already classified)
 uv run classification_task_manager.py run gxr_professional_interests \
-  --folder "People/" \
-  --skip-existing
+  --folder "People/"
 
 # Check status
 uv run classification_task_manager.py status gxr_professional_interests
 ```
 
-### Use Case 2: Boolean Classification
+### Use Case 2: Boolean Classification on Single Note
 
 ```bash
-# Is this person an investor?
+# Add task
 uv run classification_task_manager.py add-task \
   --tag "gxr_is_investor" \
   --prompt "Is this person an investor? Return true or false." \
   --output-type "boolean"
 
-uv run classification_task_manager.py run gxr_is_investor --all
+# Run on a single note
+uv run classification_task_manager.py run gxr_is_investor \
+  --note "People/John Smith.md"
 ```
 
-### Use Case 3: Run Multiple Tasks
+### Use Case 3: Re-classify All Notes in a Folder
 
 ```bash
-# Run all interest-related tasks
+# Force re-run on all notes (overwrite existing)
+uv run classification_task_manager.py run gxr_professional_interests \
+  --folder "People/" \
+  --force
+```
+
+### Use Case 4: Run Multiple Tasks on a Folder
+
+```bash
+# Run multiple tasks on all notes in folder
 uv run classification_task_manager.py run \
   gxr_professional_interests \
   gxr_personal_interests \
-  gxr_investment_focus \
+  gxr_is_active_investor \
   --folder "People/"
 ```
 
