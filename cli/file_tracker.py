@@ -138,7 +138,7 @@ class FileTracker:
         We exclude it because frontmatter changes don't affect relationship extraction.
         """
         if not content.startswith('---'):
-            return content
+            return content.strip()  # Add strip() for consistency with frontmatter case
         
         lines = content.split('\n')
         if len(lines) < 2:
