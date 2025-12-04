@@ -4,6 +4,22 @@ Metadata Manager for Obsidian Notes
 
 Allows adding, removing, and editing key-value pairs in YAML frontmatter.
 Automatically creates frontmatter section if it doesn't exist.
+
+Add type metadata to a note
+uv run metadata_manager.py add "Events/D Day tour.md" type event
+
+Add priority metadata  
+uv run metadata_manager.py add "Events/D Day tour.md" priority high
+
+View all metadata
+uv run metadata_manager.py show "Events/D Day tour.md"
+
+View specific key
+uv run metadata_manager.py show "Events/D Day tour.md" --key type
+
+Remove metadata
+uv run metadata_manager.py remove "Events/D Day tour.md" priority
+
 """
 
 import yaml
@@ -155,35 +171,56 @@ def get_metadata(note_path: Path, key: Optional[str] = None) -> Any:
         return None
 
 
+def resolve_note_path(note_path: Path, vault_path: Path) -> Path:
+    """Resolve relative note path to absolute path within vault."""
+    if note_path.is_absolute():
+        return note_path
+    return vault_path / note_path
+
+
 @click.group()
-def cli():
+@click.option('--vault-path', '-v', type=click.Path(exists=True, file_okay=False, path_type=Path), 
+              default=lambda: Path('/Users/weidongyang/Obsidian/ExampleVault'),
+              help="Path to Obsidian vault (default: ExampleVault)")
+@click.pass_context
+def cli(ctx, vault_path: Path):
     """Metadata Manager for Obsidian Notes"""
-    pass
+    ctx.ensure_object(dict)
+    ctx.obj['VAULT_PATH'] = vault_path
 
 
 @cli.command()
-@click.argument('note_path', type=click.Path(exists=True, path_type=Path))
+@click.argument('note_path', type=click.Path(path_type=Path))
 @click.argument('key')
 @click.argument('value')
-def add(note_path: Path, key: str, value: str):
+@click.pass_context
+def add(ctx, note_path: Path, key: str, value: str):
     """Add or update a key-value pair in note's frontmatter"""
-    add_metadata(note_path, key, value)
+    vault_path = ctx.obj['VAULT_PATH']
+    full_path = resolve_note_path(note_path, vault_path)
+    add_metadata(full_path, key, value)
 
 
 @cli.command()
-@click.argument('note_path', type=click.Path(exists=True, path_type=Path))
+@click.argument('note_path', type=click.Path(path_type=Path))
 @click.argument('key')
-def remove(note_path: Path, key: str):
+@click.pass_context
+def remove(ctx, note_path: Path, key: str):
     """Remove a key from note's frontmatter"""
-    remove_metadata(note_path, key)
+    vault_path = ctx.obj['VAULT_PATH']
+    full_path = resolve_note_path(note_path, vault_path)
+    remove_metadata(full_path, key)
 
 
 @cli.command()
-@click.argument('note_path', type=click.Path(exists=True, path_type=Path))
+@click.argument('note_path', type=click.Path(path_type=Path))
 @click.option('--key', '-k', help='Specific key to show (show all if not specified)')
-def show(note_path: Path, key: Optional[str] = None):
+@click.pass_context
+def show(ctx, note_path: Path, key: Optional[str] = None):
     """Show metadata from note"""
-    result = get_metadata(note_path, key)
+    vault_path = ctx.obj['VAULT_PATH']
+    full_path = resolve_note_path(note_path, vault_path)
+    result = get_metadata(full_path, key)
     if result is not None:
         if isinstance(result, dict):
             if result:
