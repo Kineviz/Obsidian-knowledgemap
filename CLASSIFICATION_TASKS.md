@@ -6,6 +6,7 @@ A system for running structured classification/extraction tasks on Obsidian note
 
 **Key Principles:**
 - Tasks are reusable and configurable
+- Task definitions stored in SQLite for easy CRUD operations
 - Results are stored in note metadata (frontmatter)
 - Idempotent execution (can re-run safely)
 - Integration with existing `metadata_manager.py` and `llm_client.py`
@@ -14,34 +15,20 @@ A system for running structured classification/extraction tasks on Obsidian note
 
 ## 1. Task Definition Schema
 
-Each classification task is defined with the following structure:
+Each classification task is defined with the following fields:
 
-```yaml
-# Required fields
-tag: "gxr_interests"              # Unique identifier (used as metadata key)
-prompt: "Extract the main professional and personal interests of this person based on the note content"
-
-# Optional fields
-name: "Person Interests"          # Human-readable name (defaults to tag)
-description: "Extract interests from person notes"
-model: "qwen3:8b"                 # LLM model override (defaults to config.yaml)
-output_type: "object"             # "object" | "list" | "text" | "boolean"
-output_schema:                    # JSON schema for structured output
-  type: "object"
-  properties:
-    professional_interests:
-      type: "array"
-      items: { type: "string" }
-      description: "Professional areas of interest"
-    personal_interests:
-      type: "array"
-      items: { type: "string" }
-      description: "Personal hobbies and interests"
-    investment_focus:
-      type: "array"
-      items: { type: "string" }
-      description: "Investment focus areas"
-```
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `tag` | string | ✓ | Unique identifier (used as metadata key) |
+| `prompt` | text | ✓ | LLM prompt for classification |
+| `name` | string | | Human-readable name (defaults to tag) |
+| `description` | text | | Task description |
+| `model` | string | | LLM model override (defaults to config.yaml) |
+| `output_type` | enum | | "object" \| "list" \| "text" \| "boolean" (default: "object") |
+| `output_schema` | JSON | | JSON schema for structured output validation |
+| `enabled` | boolean | | Whether task is active (default: true) |
+| `created_at` | datetime | | Auto-generated timestamp |
+| `updated_at` | datetime | | Auto-updated timestamp |
 
 ### Output Types
 
@@ -54,89 +41,90 @@ output_schema:                    # JSON schema for structured output
 
 ---
 
-## 2. Task Storage
+## 2. Task Storage (SQLite Database)
 
-Tasks are stored in `classification_tasks.yaml` (in vault's `.kineviz_graph/` or project root):
+Tasks are stored in SQLite database at `{vault_path}/.kineviz_graph/classification.db`
 
-```yaml
-# classification_tasks.yaml
+### Database Schema
 
-version: "1.0"
+```sql
+-- Classification Tasks Table
+CREATE TABLE IF NOT EXISTS classification_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tag TEXT UNIQUE NOT NULL,              -- Unique identifier (e.g., "gxr_interests")
+    name TEXT,                              -- Human-readable name
+    description TEXT,                       -- Task description
+    prompt TEXT NOT NULL,                   -- LLM prompt template
+    model TEXT,                             -- Override model (null = use default)
+    output_type TEXT DEFAULT 'object'       -- object | list | text | boolean
+        CHECK(output_type IN ('object', 'list', 'text', 'boolean')),
+    output_schema TEXT,                     -- JSON schema as string (nullable)
+    enabled INTEGER DEFAULT 1,              -- 1 = enabled, 0 = disabled
+    created_at REAL DEFAULT (julianday('now')),
+    updated_at REAL DEFAULT (julianday('now'))
+);
 
-tasks:
-  # Task 1: Extract person interests
-  gxr_interests:
-    name: "Person Interests"
-    description: "Extract professional and personal interests from person notes"
-    prompt: |
-      Analyze this person's note and extract their interests.
-      
-      Return a JSON object with:
-      - professional_interests: list of professional/career interests
-      - personal_interests: list of hobbies and personal interests  
-      - investment_focus: list of investment areas they focus on (if applicable)
-      
-      If a category has no relevant information, return an empty list.
-    output_type: "object"
-    output_schema:
-      type: "object"
-      properties:
-        professional_interests:
-          type: "array"
-          items: { type: "string" }
-        personal_interests:
-          type: "array"
-          items: { type: "string" }
-        investment_focus:
-          type: "array"
-          items: { type: "string" }
-      required: ["professional_interests", "personal_interests", "investment_focus"]
+-- Classification Runs Table (tracks execution history)
+CREATE TABLE IF NOT EXISTS classification_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES classification_tasks(id),
+    note_path TEXT NOT NULL,                -- Relative path to note
+    status TEXT DEFAULT 'pending'           -- pending | running | completed | failed
+        CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+    result TEXT,                            -- JSON result (nullable)
+    error TEXT,                             -- Error message if failed
+    model_used TEXT,                        -- Actual model used
+    processing_time_ms INTEGER,             -- Time taken in milliseconds
+    created_at REAL DEFAULT (julianday('now')),
+    completed_at REAL
+);
 
-  # Task 2: Extract company investment thesis
-  gxr_investment_thesis:
-    name: "Investment Thesis"
-    description: "Extract investment thesis from company/fund notes"
-    prompt: |
-      Analyze this company/fund note and extract their investment approach.
-      
-      Return a JSON object with:
-      - thesis: One sentence summary of their investment thesis
-      - focus_areas: List of sectors/areas they focus on
-      - stage_preference: Investment stages (Seed, Series A, Growth, etc.)
-      - geographic_focus: Geographic regions they invest in
-    output_type: "object"
-    output_schema:
-      type: "object"
-      properties:
-        thesis:
-          type: "string"
-        focus_areas:
-          type: "array"
-          items: { type: "string" }
-        stage_preference:
-          type: "array"
-          items: { type: "string" }
-        geographic_focus:
-          type: "array"
-          items: { type: "string" }
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_tasks_tag ON classification_tasks(tag);
+CREATE INDEX IF NOT EXISTS idx_tasks_enabled ON classification_tasks(enabled);
+CREATE INDEX IF NOT EXISTS idx_runs_task_id ON classification_runs(task_id);
+CREATE INDEX IF NOT EXISTS idx_runs_note_path ON classification_runs(note_path);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON classification_runs(status);
+```
 
-  # Task 3: Simple boolean classification
-  gxr_is_active_investor:
-    name: "Active Investor Check"
-    description: "Determine if person is an active investor"
-    prompt: |
-      Based on this note, is this person currently an active investor?
-      Return true if they are actively making investments, false otherwise.
-    output_type: "boolean"
+### Example Task Records
 
-  # Task 4: Extract key relationships (list)
-  gxr_key_relationships:
-    name: "Key Relationships"
-    description: "Extract most important relationships from note"
-    prompt: |
-      Extract the 3-5 most important professional relationships mentioned in this note.
-      Return as a list of names.
-    output_type: "list"
+```sql
+-- Insert example tasks
+INSERT INTO classification_tasks (tag, name, description, prompt, output_type, output_schema) VALUES
+(
+    'gxr_interests',
+    'Person Interests',
+    'Extract professional and personal interests from person notes',
+    'Analyze this person''s note and extract their interests.
+
+Return a JSON object with:
+- professional_interests: list of professional/career interests
+- personal_interests: list of hobbies and personal interests  
+- investment_focus: list of investment areas they focus on (if applicable)
+
+If a category has no relevant information, return an empty list.',
+    'object',
+    '{"type": "object", "properties": {"professional_interests": {"type": "array", "items": {"type": "string"}}, "personal_interests": {"type": "array", "items": {"type": "string"}}, "investment_focus": {"type": "array", "items": {"type": "string"}}}, "required": ["professional_interests", "personal_interests", "investment_focus"]}'
+),
+(
+    'gxr_is_active_investor',
+    'Active Investor Check',
+    'Determine if person is an active investor',
+    'Based on this note, is this person currently an active investor?
+Return true if they are actively making investments, false otherwise.',
+    'boolean',
+    NULL
+),
+(
+    'gxr_key_relationships',
+    'Key Relationships',
+    'Extract most important relationships from note',
+    'Extract the 3-5 most important professional relationships mentioned in this note.
+Return as a list of names.',
+    'list',
+    NULL
+);
 ```
 
 ---
@@ -192,7 +180,6 @@ gxr_interests:
   _meta:
     classified_at: "2024-12-04T15:30:00Z"  # ISO timestamp
     model: "qwen3:8b"                       # Model used
-    task_version: "1.0"                     # Task definition version
     processing_time_ms: 1250                # Time taken
     error: null                             # Error message if failed
 ```
@@ -216,30 +203,48 @@ gxr_interests:
 
 ## 4. CLI Interface
 
-### 4.1 Task Management Commands
+### 4.1 Task Management Commands (CRUD)
 
 ```bash
-# List all defined tasks
+# List all tasks
 uv run classification_task_manager.py list-tasks
+uv run classification_task_manager.py list-tasks --enabled-only
+uv run classification_task_manager.py list-tasks --format json
 
 # Show task details
 uv run classification_task_manager.py show-task gxr_interests
 
-# Add new task (interactive or via options)
+# Add new task
 uv run classification_task_manager.py add-task \
   --tag "gxr_interests" \
-  --prompt "Extract interests from this person note" \
-  --output-type "object"
+  --name "Person Interests" \
+  --prompt "Extract interests from this person note..." \
+  --output-type "object" \
+  --output-schema '{"type": "object", "properties": {...}}'
+
+# Add task interactively (prompts for each field)
+uv run classification_task_manager.py add-task --interactive
 
 # Modify existing task
-uv run classification_task_manager.py modify-task gxr_interests \
-  --prompt "New prompt text"
+uv run classification_task_manager.py edit-task gxr_interests \
+  --prompt "Updated prompt text..."
+uv run classification_task_manager.py edit-task gxr_interests \
+  --name "New Name" \
+  --model "qwen3:14b"
+
+# Enable/disable task
+uv run classification_task_manager.py enable-task gxr_interests
+uv run classification_task_manager.py disable-task gxr_interests
 
 # Delete task
 uv run classification_task_manager.py delete-task gxr_interests
+uv run classification_task_manager.py delete-task gxr_interests --force  # No confirmation
 
-# Validate task configuration
-uv run classification_task_manager.py validate-tasks
+# Import tasks from YAML (for migration/sharing)
+uv run classification_task_manager.py import-tasks tasks.yaml
+
+# Export tasks to YAML (for backup/sharing)
+uv run classification_task_manager.py export-tasks --output tasks.yaml
 ```
 
 ### 4.2 Classification Execution Commands
@@ -254,8 +259,7 @@ uv run classification_task_manager.py run gxr_interests \
   --folder "People/"
 
 # Classify all notes in vault
-uv run classification_task_manager.py run gxr_interests \
-  --all
+uv run classification_task_manager.py run gxr_interests --all
 
 # Only classify notes that haven't been classified yet
 uv run classification_task_manager.py run gxr_interests \
@@ -281,22 +285,23 @@ uv run classification_task_manager.py run gxr_interests \
   --all \
   --model "qwen3:14b"
 
-# Limit concurrency
-uv run classification_task_manager.py run gxr_interests \
-  --all \
-  --max-concurrent 3
-
-# Filter by note type (from existing metadata)
+# Filter by note metadata type
 uv run classification_task_manager.py run gxr_interests \
   --all \
   --filter-type "person"
 
-# Export results to CSV
-uv run classification_task_manager.py export gxr_interests \
-  --output interests.csv
-
 # Show classification status/stats
 uv run classification_task_manager.py status gxr_interests
+
+# Show run history
+uv run classification_task_manager.py history gxr_interests --limit 20
+
+# Export classification results to CSV
+uv run classification_task_manager.py export-results gxr_interests \
+  --output interests.csv
+
+# Clear classification history for a task
+uv run classification_task_manager.py clear-history gxr_interests
 ```
 
 ---
@@ -311,9 +316,9 @@ cli/
 ├── classification/
 │   ├── __init__.py
 │   ├── models.py                    # Pydantic models for Task, Result
-│   ├── task_storage.py              # Load/save task definitions
+│   ├── database.py                  # SQLite database operations
 │   ├── classifier.py                # Core classification logic
-│   └── result_storage.py            # Store results in metadata
+│   └── result_storage.py            # Store results in note metadata
 ```
 
 ### 5.2 Core Classes
@@ -321,6 +326,7 @@ cli/
 #### TaskDefinition (Pydantic Model)
 ```python
 class TaskDefinition(BaseModel):
+    id: Optional[int] = None
     tag: str                          # Unique identifier
     prompt: str                       # LLM prompt template
     name: Optional[str] = None        # Human-readable name
@@ -328,7 +334,60 @@ class TaskDefinition(BaseModel):
     model: Optional[str] = None       # Override default model
     output_type: Literal["object", "list", "text", "boolean"] = "object"
     output_schema: Optional[Dict] = None  # JSON schema for validation
-    version: str = "1.0"
+    enabled: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+```
+
+#### TaskDatabase (SQLite Operations)
+```python
+class TaskDatabase:
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self._init_database()
+    
+    def _init_database(self):
+        """Create tables if not exist"""
+        pass
+    
+    # CRUD operations
+    def create_task(self, task: TaskDefinition) -> int:
+        """Create new task, return ID"""
+        pass
+    
+    def get_task(self, tag: str) -> Optional[TaskDefinition]:
+        """Get task by tag"""
+        pass
+    
+    def get_all_tasks(self, enabled_only: bool = False) -> List[TaskDefinition]:
+        """Get all tasks"""
+        pass
+    
+    def update_task(self, tag: str, updates: Dict) -> bool:
+        """Update task fields"""
+        pass
+    
+    def delete_task(self, tag: str) -> bool:
+        """Delete task by tag"""
+        pass
+    
+    def enable_task(self, tag: str) -> bool:
+        pass
+    
+    def disable_task(self, tag: str) -> bool:
+        pass
+    
+    # Run history
+    def record_run(self, task_id: int, note_path: str, status: str, 
+                   result: Optional[str] = None, error: Optional[str] = None):
+        pass
+    
+    def get_run_history(self, tag: str, limit: int = 100) -> List[Dict]:
+        pass
+    
+    def get_classification_status(self, tag: str) -> Dict:
+        """Get stats: total notes, classified, pending, failed"""
+        pass
 ```
 
 #### ClassificationResult (Pydantic Model)
@@ -341,7 +400,6 @@ class ClassificationResult(BaseModel):
 class ClassificationMeta(BaseModel):
     classified_at: datetime
     model: str
-    task_version: str
     processing_time_ms: int
     error: Optional[str] = None
 ```
@@ -352,7 +410,7 @@ class Classifier:
     def __init__(self, vault_path: Path, llm_client: LLMClient):
         self.vault_path = vault_path
         self.llm_client = llm_client
-        self.task_storage = TaskStorage(vault_path)
+        self.task_db = TaskDatabase(vault_path / ".kineviz_graph" / "classification.db")
         self.metadata_manager = MetadataManager()
     
     async def classify_note(
@@ -368,8 +426,7 @@ class Classifier:
         self,
         task_tag: str,
         folder_path: Path,
-        skip_existing: bool = True,
-        max_concurrent: int = 5
+        skip_existing: bool = True
     ) -> List[ClassificationResult]:
         """Classify all notes in a folder."""
         pass
@@ -386,34 +443,34 @@ class Classifier:
 | `llm_client.py` | Use existing LLM client for classification requests |
 | `metadata_manager.py` | Use for reading/writing frontmatter |
 | `config.yaml` | Load default model settings |
-| `file_tracker.py` | Track which notes have been classified |
+| `file_tracker.py` | Reuse SQLite patterns, vault path detection |
 
 ### 5.4 LLM Prompt Construction
 
 The classifier constructs prompts by combining:
 
 1. **System prompt** (classification-specific)
-2. **Task prompt** (from task definition)
+2. **Task prompt** (from database)
 3. **Note content** (the actual note to classify)
 4. **Output format instructions** (based on output_type)
 
 ```python
-def build_classification_prompt(task: TaskDefinition, note_content: str) -> str:
+def build_classification_prompt(task: TaskDefinition, note_content: str) -> List[Dict]:
     system = f"""You are a classification assistant. 
-    Analyze the provided note and extract structured information.
-    
-    Output Format: {task.output_type}
-    {f"Schema: {json.dumps(task.output_schema)}" if task.output_schema else ""}
-    
-    Return ONLY valid JSON, no explanation."""
+Analyze the provided note and extract structured information.
+
+Output Format: {task.output_type}
+{f"Schema: {json.dumps(task.output_schema)}" if task.output_schema else ""}
+
+Return ONLY valid JSON, no explanation."""
     
     user = f"""{task.prompt}
-    
-    === NOTE CONTENT ===
-    {note_content}
-    === END NOTE ===
-    
-    Respond with JSON only."""
+
+=== NOTE CONTENT ===
+{note_content}
+=== END NOTE ===
+
+Respond with JSON only."""
     
     return [
         {"role": "system", "content": system},
@@ -429,23 +486,30 @@ def build_classification_prompt(task: TaskDefinition, note_content: str) -> str:
 
 | Error | Handling |
 |-------|----------|
-| Note not found | Skip with warning |
-| LLM timeout | Retry up to 3 times, then store error in metadata |
+| Note not found | Skip with warning, record in run history |
+| LLM timeout | Retry up to 3 times, then store error |
 | Invalid JSON response | Attempt partial extraction, store error |
 | Schema validation failed | Store raw result with validation error |
 | Task not found | Exit with error message |
+| Task disabled | Skip with warning |
 
 ### 6.2 Error Storage
 
-Errors are stored in the `_meta` field:
+Errors are stored in both:
 
+1. **Note frontmatter** (in `_meta.error`):
 ```yaml
 gxr_interests:
   _meta:
     classified_at: "2024-12-04T15:30:00Z"
     model: "qwen3:8b"
     error: "LLM returned invalid JSON: Unexpected token at position 234"
-    raw_response: "{ partial json..."
+```
+
+2. **classification_runs table**:
+```sql
+INSERT INTO classification_runs (task_id, note_path, status, error)
+VALUES (1, 'People/John.md', 'failed', 'LLM returned invalid JSON...');
 ```
 
 ---
@@ -455,28 +519,41 @@ gxr_interests:
 ### Use Case 1: Enrich Person Notes with Interests
 
 ```bash
-# Define task in classification_tasks.yaml (already done above)
+# Add the task
+uv run classification_task_manager.py add-task \
+  --tag "gxr_interests" \
+  --name "Person Interests" \
+  --prompt "Analyze this person's note and extract their professional and personal interests..." \
+  --output-type "object"
 
-# Run on all person notes
+# Run on all person notes (skip already classified)
 uv run classification_task_manager.py run gxr_interests \
   --folder "People/" \
   --skip-existing
 
 # Check status
 uv run classification_task_manager.py status gxr_interests
-# Output: 45/50 notes classified, 5 skipped (already done)
+# Output: 
+#   Total notes: 50
+#   Classified: 45
+#   Pending: 3
+#   Failed: 2
 ```
 
 ### Use Case 2: Tag Notes as Active/Inactive Investors
 
 ```bash
-# Boolean classification
-uv run classification_task_manager.py run gxr_is_active_investor \
-  --folder "People/" \
-  --all
+# Add boolean classification task
+uv run classification_task_manager.py add-task \
+  --tag "gxr_is_active_investor" \
+  --prompt "Is this person currently an active investor? Return true or false." \
+  --output-type "boolean"
+
+# Run on all notes
+uv run classification_task_manager.py run gxr_is_active_investor --all
 
 # Export for analysis
-uv run classification_task_manager.py export gxr_is_active_investor \
+uv run classification_task_manager.py export-results gxr_is_active_investor \
   --output active_investors.csv
 ```
 
@@ -484,13 +561,14 @@ uv run classification_task_manager.py export gxr_is_active_investor \
 
 ```bash
 # Update the prompt
-uv run classification_task_manager.py modify-task gxr_interests \
+uv run classification_task_manager.py edit-task gxr_interests \
   --prompt "Improved prompt with better instructions..."
 
 # Re-run on all notes (force overwrite)
-uv run classification_task_manager.py run gxr_interests \
-  --all \
-  --force
+uv run classification_task_manager.py run gxr_interests --all --force
+
+# View history
+uv run classification_task_manager.py history gxr_interests --limit 10
 ```
 
 ---
@@ -502,27 +580,65 @@ uv run classification_task_manager.py run gxr_interests \
 ```yaml
 classification:
   default_model: "qwen3:8b"
-  max_concurrent: 5
   timeout: 120
   retry_count: 3
-  tasks_file: "classification_tasks.yaml"  # Relative to vault
+  database: "classification.db"  # Relative to .kineviz_graph/
 ```
 
-### 8.2 Task File Location
+### 8.2 Database Location
 
-Tasks file is searched in order:
-1. `{vault_path}/.kineviz_graph/classification_tasks.yaml`
-2. `{project_root}/classification_tasks.yaml`
-3. `{project_root}/config/classification_tasks.yaml`
+Database is stored at: `{vault_path}/.kineviz_graph/classification.db`
+
+This keeps classification data alongside other knowledge graph data.
 
 ---
 
-## 9. Future Enhancements
+## 9. Migration & Backup
+
+### Import from YAML
+```bash
+# Import tasks from YAML file
+uv run classification_task_manager.py import-tasks tasks.yaml
+```
+
+### Export to YAML
+```bash
+# Export all tasks to YAML (for backup or sharing)
+uv run classification_task_manager.py export-tasks --output backup_tasks.yaml
+```
+
+### YAML Format (for import/export)
+```yaml
+tasks:
+  - tag: "gxr_interests"
+    name: "Person Interests"
+    prompt: |
+      Analyze this person's note...
+    output_type: "object"
+    output_schema:
+      type: "object"
+      properties:
+        professional_interests:
+          type: "array"
+          items: { type: "string" }
+    enabled: true
+    
+  - tag: "gxr_is_active_investor"
+    name: "Active Investor Check"
+    prompt: "Is this person an active investor?"
+    output_type: "boolean"
+    enabled: true
+```
+
+---
+
+## 10. Future Enhancements
 
 - [ ] Web UI for task management
 - [ ] Scheduled/automated classification on new notes
 - [ ] Classification confidence scores
 - [ ] Multi-model ensemble classification
-- [ ] Classification history tracking
 - [ ] Bulk re-classification on task update
 - [ ] Integration with knowledge graph (store classifications as node properties)
+- [ ] Task templates/presets for common classification patterns
+- [ ] Classification versioning (track changes over time)
