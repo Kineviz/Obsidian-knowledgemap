@@ -519,6 +519,9 @@ EXAMPLE OUTPUT:
         try:
             start_time = time.time()
             
+            # Check if this is a simple classification task (skip JSON suffix)
+            skip_json_suffix = kwargs.get("skip_relationship_suffix", False)
+            
             # Build messages for Qwen3 - use original system prompt + JSON enforcement
             qwen_messages = []
             
@@ -527,11 +530,15 @@ EXAMPLE OUTPUT:
                 content = msg.get("content", "")
                 
                 if role == "system":
-                    # Append Qwen3 JSON enforcement to the original system prompt
-                    qwen_messages.append({
-                        "role": "system",
-                        "content": content + self.QWEN3_JSON_SUFFIX
-                    })
+                    # For classification tasks, don't append relationship extraction suffix
+                    if skip_json_suffix:
+                        qwen_messages.append({"role": "system", "content": content})
+                    else:
+                        # Append Qwen3 JSON enforcement to the original system prompt
+                        qwen_messages.append({
+                            "role": "system",
+                            "content": content + self.QWEN3_JSON_SUFFIX
+                        })
                 elif role == "user":
                     qwen_messages.append({"role": "user", "content": content})
                 elif role == "assistant":
@@ -539,7 +546,13 @@ EXAMPLE OUTPUT:
             
             # Note: format:json works well for qwen3:8b but causes issues with qwen3:14b
             # For 14b models, we skip format:json and parse the response manually
-            use_json_format = "14b" not in model.lower() and "32b" not in model.lower() and "72b" not in model.lower()
+            # Also skip format:json for classification tasks that don't need JSON output
+            use_json_format = (
+                not skip_json_suffix and  # Classification tasks don't need JSON format
+                "14b" not in model.lower() and 
+                "32b" not in model.lower() and 
+                "72b" not in model.lower()
+            )
             
             payload = {
                 "model": model,
