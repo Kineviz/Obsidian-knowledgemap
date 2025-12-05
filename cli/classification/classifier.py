@@ -65,6 +65,11 @@ uv run classification_task_manager.py enable-task gxr_interests
 uv run classification_task_manager.py disable-task gxr_interests
 uv run classification_task_manager.py delete-task gxr_interests
 
+# Remove a tag from notes (e.g., cleanup _at timestamps)
+uv run classification_task_manager.py remove-tag gxr_is_investor_at --folder "Persons/"
+uv run classification_task_manager.py remove-tag gxr_is_investor_at --note "Persons/John.md"
+uv run classification_task_manager.py remove-tag gxr_is_investor_at --folder "Persons/" --dry-run
+
 === OUTPUT TYPES ===
 - list:    Comma-separated string, e.g., "Tech, Finance, Healthcare"
 - text:    Plain string
@@ -446,4 +451,99 @@ Return ONLY the result, no explanation, no quotes around the result."""
                 )
         
         return results
+    
+    def remove_tag_from_note(self, note_path: str, tag: str, dry_run: bool = False) -> bool:
+        """
+        Remove a metadata tag from a single note.
+        
+        Args:
+            note_path: Relative or absolute path to note
+            tag: The tag to remove (e.g., "gxr_is_investor_at")
+            dry_run: If True, don't actually modify the note
+        
+        Returns:
+            True if tag was removed, False if not found
+        """
+        full_path = self._resolve_note_path(note_path)
+        relative_path = str(full_path.relative_to(self.vault_path))
+        
+        if not full_path.exists():
+            console.print(f"[red]Note not found: {note_path}[/red]")
+            return False
+        
+        # Check if tag exists
+        metadata = self._get_metadata(full_path)
+        if metadata is None or tag not in metadata:
+            console.print(f"[dim]Tag not found in: {relative_path}[/dim]")
+            return False
+        
+        if dry_run:
+            console.print(f"[cyan]Would remove {tag} from: {relative_path}[/cyan]")
+            return True
+        
+        # Import remove function
+        import sys
+        cli_path = Path(__file__).parent.parent
+        if str(cli_path) not in sys.path:
+            sys.path.insert(0, str(cli_path))
+        from metadata_manager import remove_metadata
+        
+        if remove_metadata(full_path, tag):
+            return True
+        return False
+    
+    def remove_tag_from_folder(
+        self, 
+        folder_path: str, 
+        tag: str, 
+        dry_run: bool = False
+    ) -> Dict[str, int]:
+        """
+        Remove a metadata tag from all notes in a folder.
+        
+        Args:
+            folder_path: Relative path to folder within vault
+            tag: The tag to remove (e.g., "gxr_is_investor_at")
+            dry_run: If True, don't actually modify notes
+        
+        Returns:
+            Dict with statistics: {total, removed, not_found}
+        """
+        folder = self.vault_path / folder_path
+        if not folder.exists():
+            console.print(f"[red]Folder not found: {folder_path}[/red]")
+            return {'total': 0, 'removed': 0, 'not_found': 0}
+        
+        # Find all markdown files
+        md_files = list(folder.rglob("*.md"))
+        
+        # Filter out hidden files and folders
+        md_files = [
+            f for f in md_files 
+            if not any(part.startswith('.') for part in f.relative_to(self.vault_path).parts)
+        ]
+        
+        console.print(f"\n[bold]Removing tag: {tag}[/bold]")
+        console.print(f"[cyan]Found {len(md_files)} notes in {folder_path}[/cyan]")
+        if dry_run:
+            console.print("[yellow]Dry run mode: no changes will be made[/yellow]")
+        console.print()
+        
+        stats = {'total': len(md_files), 'removed': 0, 'not_found': 0}
+        
+        for i, md_file in enumerate(md_files, 1):
+            relative_path = str(md_file.relative_to(self.vault_path))
+            
+            if self.remove_tag_from_note(relative_path, tag, dry_run=dry_run):
+                stats['removed'] += 1
+            else:
+                stats['not_found'] += 1
+        
+        # Print summary
+        console.print(f"\n[bold]Summary:[/bold]")
+        console.print(f"  Total notes: {stats['total']}")
+        console.print(f"  [green]Removed: {stats['removed']}[/green]")
+        console.print(f"  [dim]Not found: {stats['not_found']}[/dim]")
+        
+        return stats
 

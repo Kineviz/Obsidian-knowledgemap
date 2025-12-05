@@ -310,6 +310,43 @@ def run_classification(tags: tuple, note: str, folder: str, force: bool, dry_run
     asyncio.run(run())
 
 
+@cli.command('remove-tag')
+@click.argument('tag')
+@click.option('--note', default=None, help='Single note path (relative to vault)')
+@click.option('--folder', default=None, help='Folder path (relative to vault)')
+@click.option('--dry-run', is_flag=True, help='Preview what would be removed')
+def remove_tag(tag: str, note: str, folder: str, dry_run: bool):
+    """Remove a metadata tag from note(s)
+    
+    TAG: The tag to remove (e.g., gxr_is_investor_at)
+    
+    Examples:
+    
+        # Remove from single note
+        uv run classification_task_manager.py remove-tag gxr_is_investor_at --note "People/John.md"
+        
+        # Remove from all notes in folder
+        uv run classification_task_manager.py remove-tag gxr_is_investor_at --folder "Persons/"
+        
+        # Dry run (preview)
+        uv run classification_task_manager.py remove-tag gxr_is_investor_at --folder "Persons/" --dry-run
+    """
+    if not note and not folder:
+        console.print("[red]Error: Must specify either --note or --folder[/red]")
+        return
+    if note and folder:
+        console.print("[red]Error: Cannot specify both --note and --folder[/red]")
+        return
+    
+    vault_path = get_vault_path()
+    classifier = Classifier(vault_path)
+    
+    if note:
+        classifier.remove_tag_from_note(note, tag, dry_run=dry_run)
+    else:
+        classifier.remove_tag_from_folder(folder, tag, dry_run=dry_run)
+
+
 # ==================== Status Commands ====================
 
 @cli.command('status')
