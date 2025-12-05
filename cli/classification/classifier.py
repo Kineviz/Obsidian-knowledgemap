@@ -2,6 +2,74 @@
 Core Classification Logic
 
 Runs classification tasks on notes and stores results in frontmatter.
+
+=== CLI USAGE (run from cli/ directory) ===
+
+# List all tasks
+uv run classification_task_manager.py list-tasks
+
+# Add a task (list type - comma-separated values)
+uv run classification_task_manager.py add-task \\
+  --tag "gxr_professional_interests" \\
+  --name "Professional Interests" \\
+  --prompt "Extract professional interests as comma-separated list" \\
+  --output-type list
+
+# Add a task (boolean type)
+uv run classification_task_manager.py add-task \\
+  --tag "gxr_is_investor" \\
+  --name "Is Investor" \\
+  --prompt "Is this person an investor? Return true or false." \\
+  --output-type boolean
+
+# Show task details
+uv run classification_task_manager.py show-task gxr_professional_interests
+
+# Run on single note (skips if already classified)
+uv run classification_task_manager.py run gxr_professional_interests \\
+  --note "Persons/Joseph Tsai.md"
+
+# Run on single note (force re-classify)
+uv run classification_task_manager.py run gxr_professional_interests \\
+  --note "Persons/Joseph Tsai.md" --force
+
+# Run on folder (all .md files recursively)
+uv run classification_task_manager.py run gxr_professional_interests \\
+  --folder "Persons/"
+
+# Run multiple tasks on folder
+uv run classification_task_manager.py run gxr_professional_interests gxr_is_investor \\
+  --folder "Persons/"
+
+# Dry run (preview without changes)
+uv run classification_task_manager.py run gxr_professional_interests \\
+  --folder "Persons/" --dry-run
+
+# Check status
+uv run classification_task_manager.py status gxr_professional_interests
+
+# View run history
+uv run classification_task_manager.py history gxr_professional_interests
+
+# Export/import tasks
+uv run classification_task_manager.py export-tasks -o tasks.yaml
+uv run classification_task_manager.py import-tasks tasks.yaml
+
+# Manage tasks
+uv run classification_task_manager.py edit-task gxr_interests --prompt "New prompt..."
+uv run classification_task_manager.py enable-task gxr_interests
+uv run classification_task_manager.py disable-task gxr_interests
+uv run classification_task_manager.py delete-task gxr_interests
+
+=== OUTPUT TYPES ===
+- list:    Comma-separated string, e.g., "Tech, Finance, Healthcare"
+- text:    Plain string
+- boolean: true or false
+- number:  Integer or float
+
+=== RESULTS STORED IN FRONTMATTER ===
+gxr_professional_interests: "Technology, Private Equity"
+gxr_professional_interests_at: "2025-12-04T23:42:13.720484"
 """
 
 import asyncio
