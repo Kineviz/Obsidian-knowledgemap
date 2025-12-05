@@ -264,7 +264,8 @@ def import_tasks(input_file: str):
 @click.option('--folder', default=None, help='Folder path (relative to vault)')
 @click.option('--force', is_flag=True, help='Re-classify even if already classified')
 @click.option('--dry-run', is_flag=True, help='Preview what would be classified')
-def run_classification(tags: tuple, note: str, folder: str, force: bool, dry_run: bool):
+@click.option('--store-timestamp', is_flag=True, help='Also store gxr_xxx_at timestamp (off by default)')
+def run_classification(tags: tuple, note: str, folder: str, force: bool, dry_run: bool, store_timestamp: bool):
     """Run classification task(s) on note(s)
     
     TAGS: One or more task tags to run (e.g., gxr_professional_interests)
@@ -282,6 +283,9 @@ def run_classification(tags: tuple, note: str, folder: str, force: bool, dry_run
         
         # Force re-classify
         uv run classification_task_manager.py run gxr_interests --folder "People/" --force
+        
+        # Store timestamp (gxr_xxx_at)
+        uv run classification_task_manager.py run gxr_interests --folder "People/" --store-timestamp
     """
     if not note and not folder:
         console.print("[red]Error: Must specify either --note or --folder[/red]")
@@ -299,7 +303,8 @@ def run_classification(tags: tuple, note: str, folder: str, force: bool, dry_run
             note_path=note,
             folder_path=folder,
             force=force,
-            dry_run=dry_run
+            dry_run=dry_run,
+            store_timestamp=store_timestamp
         )
     
     asyncio.run(run())

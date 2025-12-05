@@ -45,6 +45,10 @@ uv run classification_task_manager.py run gxr_professional_interests gxr_is_inve
 uv run classification_task_manager.py run gxr_professional_interests \\
   --folder "Persons/" --dry-run
 
+# Store timestamp (gxr_xxx_at) - off by default
+uv run classification_task_manager.py run gxr_professional_interests \\
+  --folder "Persons/" --store-timestamp
+
 # Check status
 uv run classification_task_manager.py status gxr_professional_interests
 
@@ -69,7 +73,7 @@ uv run classification_task_manager.py delete-task gxr_interests
 
 === RESULTS STORED IN FRONTMATTER ===
 gxr_professional_interests: "Technology, Private Equity"
-gxr_professional_interests_at: "2025-12-04T23:42:13.720484"
+gxr_professional_interests_at: "2025-12-04T23:42:13.720484"  # Only if --store-timestamp
 """
 
 import asyncio
@@ -211,21 +215,23 @@ Return ONLY the result, no explanation, no quotes around the result."""
         
         return raw
     
-    def _store_result(self, note_path: Path, task: TaskDefinition, result: Any):
+    def _store_result(self, note_path: Path, task: TaskDefinition, result: Any, store_timestamp: bool = False):
         """Store classification result in note frontmatter"""
         # Store the result
         self._add_metadata(note_path, task.tag, result)
         
-        # Store timestamp
-        timestamp = datetime.now().isoformat()
-        self._add_metadata(note_path, f"{task.tag}_at", timestamp)
+        # Optionally store timestamp (off by default)
+        if store_timestamp:
+            timestamp = datetime.now().isoformat()
+            self._add_metadata(note_path, f"{task.tag}_at", timestamp)
     
     async def classify_note(
         self, 
         task_tag: str, 
         note_path: str, 
         force: bool = False,
-        dry_run: bool = False
+        dry_run: bool = False,
+        store_timestamp: bool = False
     ) -> Tuple[bool, Optional[Any], Optional[str]]:
         """
         Classify a single note.
@@ -235,6 +241,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
             note_path: Relative or absolute path to note
             force: If True, re-classify even if already classified
             dry_run: If True, don't actually modify the note
+            store_timestamp: If True, also store gxr_xxx_at timestamp (default: False)
         
         Returns:
             Tuple of (success, result, error_message)
@@ -293,7 +300,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
             result = self._parse_result(response.content, task.output_type)
             
             # Store in frontmatter
-            self._store_result(full_path, task, result)
+            self._store_result(full_path, task, result, store_timestamp=store_timestamp)
             
             # Record success
             processing_time_ms = int((time.time() - start_time) * 1000)
@@ -317,7 +324,8 @@ Return ONLY the result, no explanation, no quotes around the result."""
         task_tag: str, 
         folder_path: str, 
         force: bool = False,
-        dry_run: bool = False
+        dry_run: bool = False,
+        store_timestamp: bool = False
     ) -> Dict[str, Any]:
         """
         Classify all notes in a folder.
@@ -327,6 +335,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
             folder_path: Relative path to folder within vault
             force: If True, re-classify even if already classified
             dry_run: If True, don't actually modify notes
+            store_timestamp: If True, also store gxr_xxx_at timestamp (default: False)
         
         Returns:
             Dict with statistics: {total, classified, skipped, failed}
@@ -367,7 +376,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
             console.print(f"[dim][{i}/{len(md_files)}][/dim] ", end="")
             
             success, result, error = await self.classify_note(
-                task_tag, relative_path, force=force, dry_run=dry_run
+                task_tag, relative_path, force=force, dry_run=dry_run, store_timestamp=store_timestamp
             )
             
             if error == "already_classified":
@@ -395,7 +404,8 @@ Return ONLY the result, no explanation, no quotes around the result."""
         note_path: Optional[str] = None,
         folder_path: Optional[str] = None,
         force: bool = False,
-        dry_run: bool = False
+        dry_run: bool = False,
+        store_timestamp: bool = False
     ) -> Dict[str, Dict[str, Any]]:
         """
         Run multiple classification tasks on note(s).
@@ -406,6 +416,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
             folder_path: Folder path (mutually exclusive with note_path)
             force: If True, re-classify even if already classified
             dry_run: If True, don't actually modify notes
+            store_timestamp: If True, also store gxr_xxx_at timestamp (default: False)
         
         Returns:
             Dict mapping task_tag to stats
@@ -420,7 +431,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
         for task_tag in task_tags:
             if note_path:
                 success, result, error = await self.classify_note(
-                    task_tag, note_path, force=force, dry_run=dry_run
+                    task_tag, note_path, force=force, dry_run=dry_run, store_timestamp=store_timestamp
                 )
                 results[task_tag] = {
                     'total': 1,
@@ -431,7 +442,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
                 }
             else:
                 results[task_tag] = await self.classify_folder(
-                    task_tag, folder_path, force=force, dry_run=dry_run
+                    task_tag, folder_path, force=force, dry_run=dry_run, store_timestamp=store_timestamp
                 )
         
         return results
