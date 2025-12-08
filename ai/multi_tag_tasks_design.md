@@ -187,7 +187,45 @@ class MultiTagResult(BaseModel):
 
 ### 4.1 Structured Output for Multi-Tag Tasks
 
-For multi-tag tasks, we'll use structured outputs (JSON schema) to ensure reliable parsing.
+For multi-tag tasks, we'll use structured outputs (JSON schema) to ensure reliable parsing. The prompt structure should:
+
+1. **Provide clear taxonomy**: List all possible values for each tag category
+2. **Set expectations**: Instruct LLM to only use evidence from text, avoid hallucination
+3. **Define output format**: Specify exact JSON structure expected
+4. **Include examples**: Show expected format (optional but helpful)
+
+#### Example Prompt Structure (VC Analysis)
+
+```
+System: You are an expert VC researcher. Your job is to classify venture capital 
+firms into standardized tags. Only use evidence from the text provided. 
+Do not hallucinate missing details. If unclear, return empty list or "unknown".
+
+User: Below is information about a VC firm.
+
+Extract structured tags using this taxonomy:
+
+Stages: Pre-Seed, Seed, Seed+, Series A, Series B, Growth, Late Stage, Multi-Stage
+Sectors: AI/ML, LLMs, DevTools, Cloud/SaaS, Cybersecurity, Data/Analytics, 
+         Bio/HealthTech, Fintech, Climate, Robotics, Consumer, GovTech, Deep Tech, etc.
+Check Size: Micro, Small Seed, Large Seed, Series A Checks, Growth Checks
+Geography: US-National, SF-Bay Area, NYC, EU/UK, Global, etc.
+Firm Type: Operator-Led, Corporate VC, Family Office, Technical Partners, Impact
+Behavioral Traits: Thesis-Driven, Conviction-Driven, Fast Decision Maker, 
+                   Metrics-Driven, Founder-First
+
+Return strict JSON:
+{
+  "results": {
+    "gxr_vc_investment_stages": "...",
+    "gxr_vc_sectors": "...",
+    ...
+  }
+}
+
+Here is the VC information:
+[NOTE CONTENT]
+```
 
 #### Pydantic Model for LLM Response
 
@@ -546,46 +584,176 @@ Display task type and tag schema for multi-tag tasks.
 
 ## 9. Example Use Cases
 
-### 9.1 VC Analysis Task
+### 9.1 VC Analysis Task (Comprehensive Example)
+
+This is a real-world example based on a comprehensive VC taxonomy for analyzing venture capital firms.
+
+#### Task Definition
 
 ```python
 TaskDefinition(
     tag="gxr_vc_analysis",
     task_type=TaskType.MULTI,
     name="VC Profile Analysis",
-    description="Extract comprehensive VC investment profile",
-    prompt="""Analyze this venture capitalist profile and extract:
-1. Investment stages they focus on
-2. Sectors/industries they invest in
-3. Whether they are currently active
-4. Their investment thesis/strategy""",
+    description="Extract comprehensive VC investment profile with stages, sectors, check sizes, geography, firm characteristics, and behavioral traits",
+    prompt="""You are an expert VC researcher. Analyze this venture capital firm profile and extract structured information.
+
+Use only evidence from the text provided. Do not hallucinate missing details. If unclear, return empty list or "unknown".
+
+Extract the following information:
+1. Investment stages they focus on (Pre-Seed, Seed, Seed+, Series A, Series B, Growth, Late-Stage, Multi-Stage, Opportunity Fund)
+2. Sectors/industries they invest in (AI/ML, LLMs, DevTools, Cloud/SaaS, Cybersecurity, Data/Analytics, Bio/HealthTech, Fintech, Climate, Robotics, Consumer, GovTech, Deep Tech, etc.)
+3. Typical check size range (Micro-checks <$250k, Small Seed $250k-$1M, Large Seed $1M-$3M, Series A Checks $3M-$10M, Growth Checks $10M+)
+4. Geographic focus (US-National, SF-Bay Area, NYC, Boston, EU/UK, DACH, Nordics, APAC, Global)
+5. Firm characteristics (Technical Partners, Operator-Led Fund, Corporate VC, Family Office, Government/Sovereign Fund, Impact-Oriented, AI-Native Fund, Security-Focused Fund, Hard-Tech Thesis)
+6. Behavioral traits (Conviction-Driven, Thesis-Driven, Metrics-Driven, Founder-First, Fast Decision Maker, Hands-On Support, Slow/Committee-Based, Follow-On Heavy)
+7. Investment thesis summary (brief text description)
+8. Whether they are currently active investors (boolean)""",
     tag_schema=[
+        # Investment Stages
         TagSchema(
-            tag="gxr_investment_stage",
+            tag="gxr_vc_investment_stages",
             output_type=OutputType.LIST,
             name="Investment Stages",
-            description="Stages of investment (e.g., Seed, Series A, Series B)"
+            description="Stages of investment focus: Pre-Seed, Seed, Seed+, Series A, Series B, Growth, Late-Stage, Multi-Stage, Opportunity Fund"
         ),
+        
+        # Sectors / Investment Interests
         TagSchema(
-            tag="gxr_investment_sector",
+            tag="gxr_vc_sectors",
             output_type=OutputType.LIST,
             name="Investment Sectors",
-            description="Industries or sectors of focus"
+            description="Sectors and industries: AI/ML, LLMs, DevTools, Cloud/SaaS, Cybersecurity, Data/Analytics, Bio/HealthTech, Fintech, Climate, Robotics, Consumer, GovTech, Deep Tech, Enterprise SaaS, Vertical AI, etc."
         ),
+        
+        # Check Size
         TagSchema(
-            tag="gxr_is_active_investor",
-            output_type=OutputType.BOOLEAN,
-            name="Active Investor",
-            description="Whether they are currently making investments"
+            tag="gxr_vc_check_size",
+            output_type=OutputType.TEXT,
+            name="Check Size Range",
+            description="Typical check size: Micro-checks (<$250k), Small Seed ($250k-$1M), Large Seed ($1M-$3M), Series A Checks ($3M-$10M), Growth Checks ($10M+)"
         ),
+        
+        # Geography
         TagSchema(
-            tag="gxr_investment_thesis",
+            tag="gxr_vc_geography",
+            output_type=OutputType.LIST,
+            name="Geographic Focus",
+            description="Investment geography: US-National, SF-Bay Area, NYC, Boston, EU/UK, DACH, Nordics, APAC, Global"
+        ),
+        
+        # Firm Characteristics
+        TagSchema(
+            tag="gxr_vc_firm_type",
+            output_type=OutputType.LIST,
+            name="Firm Characteristics",
+            description="Firm type: Technical Partners, Operator-Led Fund, Corporate VC, Family Office, Government/Sovereign Fund, Impact-Oriented, AI-Native Fund, Security-Focused Fund, Hard-Tech Thesis"
+        ),
+        
+        # Behavioral Traits
+        TagSchema(
+            tag="gxr_vc_behavioral_traits",
+            output_type=OutputType.LIST,
+            name="Behavioral Traits",
+            description="Decision style and approach: Conviction-Driven, Thesis-Driven, Metrics-Driven, Founder-First, Fast Decision Maker, Hands-On Support, Slow/Committee-Based, Follow-On Heavy"
+        ),
+        
+        # Investment Thesis
+        TagSchema(
+            tag="gxr_vc_investment_thesis",
             output_type=OutputType.TEXT,
             name="Investment Thesis",
-            description="Summary of investment strategy and thesis"
+            description="Brief summary of investment strategy and thesis"
+        ),
+        
+        # Active Status
+        TagSchema(
+            tag="gxr_vc_is_active",
+            output_type=OutputType.BOOLEAN,
+            name="Active Investor",
+            description="Whether they are currently making new investments"
         ),
     ],
     enabled=True
+)
+```
+
+#### Expected JSON Response from LLM
+
+```json
+{
+  "results": {
+    "gxr_vc_investment_stages": "Seed, Series A, Series B",
+    "gxr_vc_sectors": "AI/ML, DevTools, Enterprise SaaS, Data/Analytics",
+    "gxr_vc_check_size": "Large Seed ($1M-$3M)",
+    "gxr_vc_geography": "US-National, SF-Bay Area",
+    "gxr_vc_firm_type": "Operator-Led Fund, Technical Partners",
+    "gxr_vc_behavioral_traits": "Thesis-Driven, Founder-First, Hands-On Support",
+    "gxr_vc_investment_thesis": "Focus on early-stage AI infrastructure and applied ML companies with strong technical founders",
+    "gxr_vc_is_active": true
+  }
+}
+```
+
+#### Resulting Frontmatter
+
+```yaml
+---
+type: company
+name: Example Capital
+gxr_vc_investment_stages: "Seed, Series A, Series B"
+gxr_vc_investment_stages_at: "2024-12-04T15:30:00Z"
+gxr_vc_sectors: "AI/ML, DevTools, Enterprise SaaS, Data/Analytics"
+gxr_vc_sectors_at: "2024-12-04T15:30:00Z"
+gxr_vc_check_size: "Large Seed ($1M-$3M)"
+gxr_vc_check_size_at: "2024-12-04T15:30:00Z"
+gxr_vc_geography: "US-National, SF-Bay Area"
+gxr_vc_geography_at: "2024-12-04T15:30:00Z"
+gxr_vc_firm_type: "Operator-Led Fund, Technical Partners"
+gxr_vc_firm_type_at: "2024-12-04T15:30:00Z"
+gxr_vc_behavioral_traits: "Thesis-Driven, Founder-First, Hands-On Support"
+gxr_vc_behavioral_traits_at: "2024-12-04T15:30:00Z"
+gxr_vc_investment_thesis: "Focus on early-stage AI infrastructure and applied ML companies with strong technical founders"
+gxr_vc_investment_thesis_at: "2024-12-04T15:30:00Z"
+gxr_vc_is_active: true
+gxr_vc_is_active_at: "2024-12-04T15:30:00Z"
+---
+```
+
+#### Benefits of This Approach
+
+1. **Comprehensive Coverage**: 8 tags extracted in one LLM call instead of 8 separate calls
+2. **Consistency**: All tags derived from the same model state, ensuring coherence
+3. **Efficiency**: ~87% reduction in API calls (8 calls → 1 call)
+4. **Graph-Ready**: Tags are structured for easy clustering and relationship mapping in GraphXR/KuzuDB
+5. **Taxonomy-Based**: Uses standardized categories that enable better graph analysis
+
+#### Advanced: Deep Analysis Variant
+
+For more accurate inference, you can create a variant with enhanced reasoning:
+
+```python
+TaskDefinition(
+    tag="gxr_vc_analysis_deep",
+    task_type=TaskType.MULTI,
+    name="VC Deep Analysis",
+    description="Enhanced VC analysis with reasoning and confidence scores",
+    prompt="""[Enhanced prompt with reasoning requirements]""",
+    tag_schema=[
+        # ... same tags as above ...
+        TagSchema(
+            tag="gxr_vc_confidence",
+            output_type=OutputType.NUMBER,
+            name="Confidence Score",
+            description="Confidence score 0-1 reflecting certainty of analysis"
+        ),
+        TagSchema(
+            tag="gxr_vc_reasoning",
+            output_type=OutputType.TEXT,
+            name="Analysis Reasoning",
+            description="Brief explanation of tag selections"
+        ),
+    ]
 )
 ```
 
@@ -744,20 +912,73 @@ TaskDefinition(
 
 ---
 
-## Appendix A: Example JSON Response
+## Appendix A: VC Analysis Tag Taxonomy Reference
+
+### Complete Tag Categories
+
+**A. Investment Stages**
+- Pre-Seed, Seed, Seed+ / Pre-A, Series A, Series B, Growth (C–E), Late-Stage / Pre-IPO, Multi-Stage, Opportunity Fund
+
+**B. Sectors / Investment Interests**
+- AI/ML, LLM/Foundation Models, DevTools/Infra, Cloud/SaaS, Cybersecurity, Data/Analytics/BI, Vertical AI (finance, healthcare, law, etc.), Deep Tech/Frontier, Bio/HealthTech/MedTech, Fintech, Climate/Energy/Sustainability, Gaming/Metaverse, Robotics, Enterprise SaaS, GovTech/Defense/Dual Use, Consumer/Social, Industrial/Supply Chain
+
+**C. Check Size**
+- Micro-checks (<$250k), Small Seed ($250k–$1M), Large Seed ($1M–$3M), Series A Checks ($3M–$10M), Growth Checks ($10M+)
+
+**D. Geography**
+- US-National, SF-Bay Area, NYC, Boston, EU/UK, DACH, Nordics, APAC, Global
+
+**E. Firm Characteristics**
+- Technical Partners, Operator-Led Fund, Corporate VC, Family Office, Government/Sovereign Fund, Impact-Oriented, AI-Native Fund, Security-Focused Fund, Hard-Tech Thesis
+
+**F. Behavioral / Decision-Style**
+- Conviction-Driven, Thesis-Driven, Metrics-Driven, Founder-First, Fast Decision Maker, Hands-On Support, Slow/Committee-Based, Follow-On Heavy
+
+### Example JSON Response
 
 ```json
 {
   "results": {
-    "gxr_investment_stage": "Series A, Series B",
-    "gxr_investment_sector": "B2B SaaS, Enterprise Software",
-    "gxr_is_active_investor": true,
-    "gxr_investment_thesis": "Focus on early-stage B2B SaaS companies with strong product-market fit"
+    "gxr_vc_investment_stages": "Seed, Series A, Series B",
+    "gxr_vc_sectors": "AI/ML, DevTools, Enterprise SaaS, Data/Analytics",
+    "gxr_vc_check_size": "Large Seed ($1M-$3M)",
+    "gxr_vc_geography": "US-National, SF-Bay Area",
+    "gxr_vc_firm_type": "Operator-Led Fund, Technical Partners",
+    "gxr_vc_behavioral_traits": "Thesis-Driven, Founder-First, Hands-On Support",
+    "gxr_vc_investment_thesis": "Focus on early-stage AI infrastructure and applied ML companies with strong technical founders",
+    "gxr_vc_is_active": true
   }
 }
 ```
 
 ## Appendix B: Example Frontmatter Result
+
+### VC Analysis Task Result
+
+```yaml
+---
+type: company
+name: Example Capital
+gxr_vc_investment_stages: "Seed, Series A, Series B"
+gxr_vc_investment_stages_at: "2024-12-04T15:30:00Z"
+gxr_vc_sectors: "AI/ML, DevTools, Enterprise SaaS, Data/Analytics"
+gxr_vc_sectors_at: "2024-12-04T15:30:00Z"
+gxr_vc_check_size: "Large Seed ($1M-$3M)"
+gxr_vc_check_size_at: "2024-12-04T15:30:00Z"
+gxr_vc_geography: "US-National, SF-Bay Area"
+gxr_vc_geography_at: "2024-12-04T15:30:00Z"
+gxr_vc_firm_type: "Operator-Led Fund, Technical Partners"
+gxr_vc_firm_type_at: "2024-12-04T15:30:00Z"
+gxr_vc_behavioral_traits: "Thesis-Driven, Founder-First, Hands-On Support"
+gxr_vc_behavioral_traits_at: "2024-12-04T15:30:00Z"
+gxr_vc_investment_thesis: "Focus on early-stage AI infrastructure and applied ML companies with strong technical founders"
+gxr_vc_investment_thesis_at: "2024-12-04T15:30:00Z"
+gxr_vc_is_active: true
+gxr_vc_is_active_at: "2024-12-04T15:30:00Z"
+---
+```
+
+### Simple Person Profile Example
 
 ```yaml
 ---

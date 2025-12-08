@@ -50,23 +50,41 @@ class TaskDefinition(BaseModel):
 5. Parse each tag value according to its output_type
 6. Store all tags in frontmatter atomically
 
-### 5. Example: VC Analysis Task
+### 5. Example: VC Analysis Task (Comprehensive)
+
+Real-world example with 8 tags extracted in one call:
 
 ```python
 TaskDefinition(
     tag="gxr_vc_analysis",
     task_type=TaskType.MULTI,
-    prompt="Analyze this VC profile...",
+    prompt="[Comprehensive VC analysis prompt with taxonomy]",
     tag_schema=[
-        TagSchema(tag="gxr_investment_stage", output_type="list"),
-        TagSchema(tag="gxr_investment_sector", output_type="list"),
-        TagSchema(tag="gxr_is_active_investor", output_type="boolean"),
-        TagSchema(tag="gxr_investment_thesis", output_type="text"),
+        TagSchema(tag="gxr_vc_investment_stages", output_type="list"),
+        TagSchema(tag="gxr_vc_sectors", output_type="list"),
+        TagSchema(tag="gxr_vc_check_size", output_type="text"),
+        TagSchema(tag="gxr_vc_geography", output_type="list"),
+        TagSchema(tag="gxr_vc_firm_type", output_type="list"),
+        TagSchema(tag="gxr_vc_behavioral_traits", output_type="list"),
+        TagSchema(tag="gxr_vc_investment_thesis", output_type="text"),
+        TagSchema(tag="gxr_vc_is_active", output_type="boolean"),
     ]
 )
 ```
 
-**Result**: One LLM call generates all 4 tags simultaneously.
+**Result**: One LLM call generates all 8 tags simultaneously.
+
+**Tag Categories**:
+- Investment Stages (Pre-Seed, Seed, Series A, etc.)
+- Sectors (AI/ML, DevTools, SaaS, etc.)
+- Check Size (Micro, Small Seed, Large Seed, etc.)
+- Geography (US-National, SF-Bay Area, EU/UK, etc.)
+- Firm Type (Operator-Led, Corporate VC, Technical Partners, etc.)
+- Behavioral Traits (Thesis-Driven, Founder-First, etc.)
+- Investment Thesis (text summary)
+- Active Status (boolean)
+
+See full example in `ai/multi_tag_tasks_design.md` section 9.1.
 
 ## Benefits
 
