@@ -544,6 +544,103 @@
             to { transform: rotate(360deg); }
         }
 
+        /* Progress Bar */
+        .progress-container {
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-bar-wrapper {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 1rem;
+            margin-top: 1rem;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .progress-title {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .progress-percentage {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--accent-cyan);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-purple) 0%, var(--accent-blue) 100%);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+
+        .progress-note {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .progress-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+
+        .progress-status.running {
+            background: rgba(88, 166, 255, 0.1);
+            color: var(--accent-blue);
+        }
+
+        .progress-status.completed {
+            background: rgba(63, 185, 80, 0.1);
+            color: var(--accent-green);
+        }
+
+        .progress-status.failed {
+            background: rgba(248, 81, 73, 0.1);
+            color: var(--accent-red);
+        }
+
         /* Responsive */
         @media (max-width: 900px) {
             .main {
@@ -641,6 +738,8 @@
         let selectedTask = null;
         let folders = [];
         let editMode = false;
+        let currentJobId = null;
+        let progressInterval = null;
 
         // API calls
         async function api(endpoint, options = {}) {
@@ -800,9 +899,31 @@ ${selectedTask.prompt}
                             </div>
                         </div>
                     </div>
-                    <button class="btn btn-primary" onclick="runClassification()">
+                    <button class="btn btn-primary" id="run-button" onclick="runClassification()">
                         Run on Folder
                     </button>
+                    <div class="progress-container" id="progress-container">
+                        <div class="progress-bar-wrapper">
+                            <div class="progress-header">
+                                <span class="progress-title">Processing...</span>
+                                <span class="progress-percentage" id="progress-percentage">0%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progress-fill"></div>
+                            </div>
+                            <div class="progress-details" id="progress-details">
+                                <span id="progress-current">0</span>
+                                <span>of</span>
+                                <span id="progress-total">0</span>
+                                <span>notes</span>
+                            </div>
+                            <div class="progress-note" id="progress-note"></div>
+                            <div class="progress-status running" id="progress-status">
+                                <span class="spinner"></span>
+                                <span>Running...</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="panel" style="margin-top: 1.5rem;">
@@ -950,8 +1071,13 @@ ${selectedTask.prompt}
             const force = document.getElementById('run-force').checked;
             const storeTimestamp = document.getElementById('run-timestamp').checked;
             
+            // Disable button
+            const runButton = document.getElementById('run-button');
+            runButton.disabled = true;
+            runButton.textContent = 'Starting...';
+            
             try {
-                await api('/run', {
+                const response = await api('/run', {
                     method: 'POST',
                     body: {
                         tags: [selectedTask.tag],
@@ -960,11 +1086,145 @@ ${selectedTask.prompt}
                         store_timestamp: storeTimestamp
                     }
                 });
-                toast('Classification started! Check console for progress.');
+                
+                // Store job ID and start polling
+                currentJobId = response.job_id;
+                showProgress();
+                startProgressPolling();
+                
+                toast('Classification started!');
             } catch (err) {
                 toast(err.message, 'error');
+                runButton.disabled = false;
+                runButton.textContent = 'Run on Folder';
             }
         }
+
+        function showProgress() {
+            const container = document.getElementById('progress-container');
+            container.classList.add('active');
+            
+            // Reset progress
+            updateProgress(0, 0, null, 'running');
+        }
+
+        function hideProgress() {
+            const container = document.getElementById('progress-container');
+            container.classList.remove('active');
+            currentJobId = null;
+            
+            // Re-enable button
+            const runButton = document.getElementById('run-button');
+            runButton.disabled = false;
+            runButton.textContent = 'Run on Folder';
+        }
+
+        function updateProgress(current, total, notePath, status) {
+            const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
+            
+            document.getElementById('progress-percentage').textContent = `${percentage}%`;
+            document.getElementById('progress-fill').style.width = `${percentage}%`;
+            document.getElementById('progress-current').textContent = current;
+            document.getElementById('progress-total').textContent = total;
+            
+            if (notePath) {
+                document.getElementById('progress-note').textContent = `Processing: ${notePath}`;
+            } else {
+                document.getElementById('progress-note').textContent = '';
+            }
+            
+            // Update status
+            const statusEl = document.getElementById('progress-status');
+            statusEl.className = `progress-status ${status}`;
+            
+            if (status === 'running') {
+                statusEl.innerHTML = '<span class="spinner"></span><span>Running...</span>';
+            } else if (status === 'completed') {
+                statusEl.innerHTML = '<span>✓ Completed</span>';
+            } else if (status === 'failed') {
+                statusEl.innerHTML = '<span>✗ Failed</span>';
+            }
+        }
+
+        async function checkJobProgress() {
+            if (!currentJobId) return;
+            
+            try {
+                const progress = await api(`/jobs/${currentJobId}`);
+                
+                updateProgress(
+                    progress.current || 0,
+                    progress.total || 0,
+                    progress.current_note || null,
+                    progress.status || 'running'
+                );
+                
+                // Update completed/failed counts if available
+                const details = document.getElementById('progress-details');
+                if (details && (progress.completed !== undefined || progress.failed !== undefined || progress.skipped !== undefined)) {
+                    let parts = [`${progress.current || 0} of ${progress.total || 0} notes`];
+                    if (progress.completed !== undefined && progress.completed > 0) {
+                        parts.push(`${progress.completed} completed`);
+                    }
+                    if (progress.failed !== undefined && progress.failed > 0) {
+                        parts.push(`${progress.failed} failed`);
+                    }
+                    if (progress.skipped !== undefined && progress.skipped > 0) {
+                        parts.push(`${progress.skipped} skipped`);
+                    }
+                    details.innerHTML = parts.join(' • ');
+                }
+                
+                // Stop polling if job is done
+                if (progress.status === 'completed' || progress.status === 'failed') {
+                    stopProgressPolling();
+                    
+                    if (progress.status === 'completed') {
+                        toast('Classification completed!');
+                        // Refresh history after a short delay
+                        setTimeout(() => {
+                            if (selectedTask) {
+                                selectTask(selectedTask.tag);
+                            }
+                        }, 1000);
+                    } else {
+                        toast(`Classification failed: ${progress.error || 'Unknown error'}`, 'error');
+                    }
+                    
+                    // Hide progress after 5 seconds
+                    setTimeout(() => {
+                        hideProgress();
+                    }, 5000);
+                }
+            } catch (err) {
+                console.error('Error checking progress:', err);
+                // If job not found, assume it's done
+                if (err.message.includes('not found')) {
+                    stopProgressPolling();
+                    hideProgress();
+                }
+            }
+        }
+
+        function startProgressPolling() {
+            // Check immediately
+            checkJobProgress();
+            
+            // Then poll every 500ms
+            progressInterval = setInterval(checkJobProgress, 500);
+        }
+
+        function stopProgressPolling() {
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                progressInterval = null;
+            }
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            stopProgressPolling();
+        });
 
         // Initialize
         loadData();

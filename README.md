@@ -24,11 +24,14 @@ nano config.yaml  # Set vault path and other settings
 nano .env         # Add your OpenAI API key
 ```
 
-### 2. Start Monitoring and Kuzu Server
+### 2. Start Classification Server, Monitoring and Kuzu Server
 ```bash
 # Start monitoring - builds database automatically if needed
 cd cli
 uv run step4_monitor.py
+
+# Start classification server on port 8000
+uv run classification_server.py
 ```
 
 ### 3. Use the API

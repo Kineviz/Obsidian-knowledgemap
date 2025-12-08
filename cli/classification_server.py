@@ -13,8 +13,9 @@ Then open http://localhost:8000 in your browser.
 
 import asyncio
 import sys
+import uuid
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -37,6 +38,9 @@ app = FastAPI(title="Classification Task Manager", version="1.0.0")
 # Global state
 _classifier: Optional[Classifier] = None
 _task_db: Optional[TaskDatabase] = None
+
+# Job tracking: job_id -> progress info
+_job_progress: Dict[str, Dict[str, Any]] = {}
 
 
 def get_vault_path() -> Path:
@@ -284,21 +288,88 @@ async def get_task_history(tag: str, limit: int = 50):
 
 # Background task for running classification
 async def run_classification_task(
+    job_id: str,
     tags: List[str], 
     note: Optional[str], 
     folder: Optional[str], 
     force: bool,
     store_timestamp: bool
 ):
-    """Background task to run classification"""
-    classifier = get_classifier()
-    await classifier.classify_notes(
-        task_tags=tags,
-        note_path=note,
-        folder_path=folder,
-        force=force,
-        store_timestamp=store_timestamp
-    )
+    """Background task to run classification with progress tracking"""
+    try:
+        # Initialize job progress
+        _job_progress[job_id] = {
+            "status": "running",
+            "progress": 0,
+            "total": 0,
+            "current": 0,
+            "current_note": None,
+            "completed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "error": None,
+            "results": {}
+        }
+        
+        classifier = get_classifier()
+        
+        # Track progress per task
+        task_progress = {tag: {"current": 0, "total": 0} for tag in tags}
+        
+        # Create progress callback
+        def progress_callback(task_tag: str, current: int, total: int, note_path: Optional[str] = None):
+            """Update progress for a specific task"""
+            if job_id in _job_progress:
+                # Update task-specific progress
+                task_progress[task_tag] = {"current": current, "total": total}
+                
+                # Calculate overall progress across all tasks
+                total_current = sum(t["current"] for t in task_progress.values())
+                total_max = sum(t["total"] for t in task_progress.values())
+                
+                _job_progress[job_id]["current"] = total_current
+                _job_progress[job_id]["total"] = total_max
+                _job_progress[job_id]["current_note"] = note_path
+                
+                if total_max > 0:
+                    _job_progress[job_id]["progress"] = int((total_current / total_max) * 100)
+        
+        # Run classification with progress tracking
+        results = await classifier.classify_notes(
+            task_tags=tags,
+            note_path=note,
+            folder_path=folder,
+            force=force,
+            store_timestamp=store_timestamp,
+            progress_callback=progress_callback
+        )
+        
+        # Update final status
+        if job_id in _job_progress:
+            total_completed = sum(r.get('classified', 0) for r in results.values())
+            total_failed = sum(r.get('failed', 0) for r in results.values())
+            total_skipped = sum(r.get('skipped', 0) for r in results.values())
+            
+            _job_progress[job_id].update({
+                "status": "completed",
+                "progress": 100,
+                "completed": total_completed,
+                "failed": total_failed,
+                "skipped": total_skipped,
+                "results": results
+            })
+    except Exception as e:
+        # Mark job as failed
+        if job_id in _job_progress:
+            _job_progress[job_id].update({
+                "status": "failed",
+                "error": str(e)
+            })
+        else:
+            _job_progress[job_id] = {
+                "status": "failed",
+                "error": str(e)
+            }
 
 
 @app.post("/api/run")
@@ -309,9 +380,13 @@ async def run_classification(request: RunRequest, background_tasks: BackgroundTa
     if request.note and request.folder:
         raise HTTPException(status_code=400, detail="Cannot specify both note and folder")
     
+    # Generate job ID
+    job_id = str(uuid.uuid4())
+    
     # Run in background
     background_tasks.add_task(
         run_classification_task,
+        job_id,
         request.tags,
         request.note,
         request.folder,
@@ -321,10 +396,21 @@ async def run_classification(request: RunRequest, background_tasks: BackgroundTa
     
     return {
         "message": "Classification started",
+        "job_id": job_id,
         "tags": request.tags,
         "target": request.note or request.folder,
         "force": request.force
     }
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job_status(job_id: str):
+    """Get job progress status"""
+    if job_id not in _job_progress:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    
+    progress = _job_progress[job_id]
+    return progress
 
 
 @app.get("/api/folders")

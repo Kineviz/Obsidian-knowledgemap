@@ -85,7 +85,7 @@ import asyncio
 import time
 import re
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Callable
 from datetime import datetime
 
 from rich.console import Console
@@ -325,12 +325,13 @@ Return ONLY the result, no explanation, no quotes around the result."""
             return False, None, str(e)
     
     async def classify_folder(
-        self, 
+        self,
         task_tag: str, 
         folder_path: str, 
         force: bool = False,
         dry_run: bool = False,
-        store_timestamp: bool = False
+        store_timestamp: bool = False,
+        progress_callback: Optional[Callable[[str, int, int, Optional[str]], None]] = None
     ) -> Dict[str, Any]:
         """
         Classify all notes in a folder.
@@ -341,6 +342,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
             force: If True, re-classify even if already classified
             dry_run: If True, don't actually modify notes
             store_timestamp: If True, also store gxr_xxx_at timestamp (default: False)
+            progress_callback: Optional callback function(task_tag, current, total, note_path) for progress updates
         
         Returns:
             Dict with statistics: {total, classified, skipped, failed}
@@ -380,6 +382,10 @@ Return ONLY the result, no explanation, no quotes around the result."""
             relative_path = str(md_file.relative_to(self.vault_path))
             console.print(f"[dim][{i}/{len(md_files)}][/dim] ", end="")
             
+            # Report progress
+            if progress_callback:
+                progress_callback(task_tag, i, len(md_files), relative_path)
+            
             success, result, error = await self.classify_note(
                 task_tag, relative_path, force=force, dry_run=dry_run, store_timestamp=store_timestamp
             )
@@ -410,7 +416,8 @@ Return ONLY the result, no explanation, no quotes around the result."""
         folder_path: Optional[str] = None,
         force: bool = False,
         dry_run: bool = False,
-        store_timestamp: bool = False
+        store_timestamp: bool = False,
+        progress_callback: Optional[Callable[[str, int, int, Optional[str]], None]] = None
     ) -> Dict[str, Dict[str, Any]]:
         """
         Run multiple classification tasks on note(s).
@@ -422,6 +429,7 @@ Return ONLY the result, no explanation, no quotes around the result."""
             force: If True, re-classify even if already classified
             dry_run: If True, don't actually modify notes
             store_timestamp: If True, also store gxr_xxx_at timestamp (default: False)
+            progress_callback: Optional callback function(task_tag, current, total, note_path) for progress updates
         
         Returns:
             Dict mapping task_tag to stats
@@ -435,9 +443,13 @@ Return ONLY the result, no explanation, no quotes around the result."""
         
         for task_tag in task_tags:
             if note_path:
+                if progress_callback:
+                    progress_callback(task_tag, 0, 1, note_path)
                 success, result, error = await self.classify_note(
                     task_tag, note_path, force=force, dry_run=dry_run, store_timestamp=store_timestamp
                 )
+                if progress_callback:
+                    progress_callback(task_tag, 1, 1, note_path)
                 results[task_tag] = {
                     'total': 1,
                     'classified': 1 if success and error not in ('already_classified', 'dry_run') else 0,
@@ -447,7 +459,8 @@ Return ONLY the result, no explanation, no quotes around the result."""
                 }
             else:
                 results[task_tag] = await self.classify_folder(
-                    task_tag, folder_path, force=force, dry_run=dry_run, store_timestamp=store_timestamp
+                    task_tag, folder_path, force=force, dry_run=dry_run, store_timestamp=store_timestamp,
+                    progress_callback=progress_callback
                 )
         
         return results
