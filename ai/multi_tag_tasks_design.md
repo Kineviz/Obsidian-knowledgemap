@@ -605,10 +605,7 @@ Extract the following information:
 2. Sectors/industries they invest in (AI/ML, LLMs, DevTools, Cloud/SaaS, Cybersecurity, Data/Analytics, Bio/HealthTech, Fintech, Climate, Robotics, Consumer, GovTech, Deep Tech, etc.)
 3. Typical check size range (Micro-checks <$250k, Small Seed $250k-$1M, Large Seed $1M-$3M, Series A Checks $3M-$10M, Growth Checks $10M+)
 4. Geographic focus (US-National, SF-Bay Area, NYC, Boston, EU/UK, DACH, Nordics, APAC, Global)
-5. Firm characteristics (Technical Partners, Operator-Led Fund, Corporate VC, Family Office, Government/Sovereign Fund, Impact-Oriented, AI-Native Fund, Security-Focused Fund, Hard-Tech Thesis)
-6. Behavioral traits (Conviction-Driven, Thesis-Driven, Metrics-Driven, Founder-First, Fast Decision Maker, Hands-On Support, Slow/Committee-Based, Follow-On Heavy)
-7. Investment thesis summary (brief text description)
-8. Whether they are currently active investors (boolean)""",
+5. Firm characteristics (Technical Partners, Operator-Led Fund, Corporate VC, Family Office, Government/Sovereign Fund, Impact-Oriented, AI-Native Fund, Security-Focused Fund, Hard-Tech Thesis)""",
     tag_schema=[
         # Investment Stages
         TagSchema(
@@ -649,30 +646,6 @@ Extract the following information:
             name="Firm Characteristics",
             description="Firm type: Technical Partners, Operator-Led Fund, Corporate VC, Family Office, Government/Sovereign Fund, Impact-Oriented, AI-Native Fund, Security-Focused Fund, Hard-Tech Thesis"
         ),
-        
-        # Behavioral Traits
-        TagSchema(
-            tag="gxr_vc_behavioral_traits",
-            output_type=OutputType.LIST,
-            name="Behavioral Traits",
-            description="Decision style and approach: Conviction-Driven, Thesis-Driven, Metrics-Driven, Founder-First, Fast Decision Maker, Hands-On Support, Slow/Committee-Based, Follow-On Heavy"
-        ),
-        
-        # Investment Thesis
-        TagSchema(
-            tag="gxr_vc_investment_thesis",
-            output_type=OutputType.TEXT,
-            name="Investment Thesis",
-            description="Brief summary of investment strategy and thesis"
-        ),
-        
-        # Active Status
-        TagSchema(
-            tag="gxr_vc_is_active",
-            output_type=OutputType.BOOLEAN,
-            name="Active Investor",
-            description="Whether they are currently making new investments"
-        ),
     ],
     enabled=True
 )
@@ -687,10 +660,7 @@ Extract the following information:
     "gxr_vc_sectors": "AI/ML, DevTools, Enterprise SaaS, Data/Analytics",
     "gxr_vc_check_size": "Large Seed ($1M-$3M)",
     "gxr_vc_geography": "US-National, SF-Bay Area",
-    "gxr_vc_firm_type": "Operator-Led Fund, Technical Partners",
-    "gxr_vc_behavioral_traits": "Thesis-Driven, Founder-First, Hands-On Support",
-    "gxr_vc_investment_thesis": "Focus on early-stage AI infrastructure and applied ML companies with strong technical founders",
-    "gxr_vc_is_active": true
+    "gxr_vc_firm_type": "Operator-Led Fund, Technical Partners"
   }
 }
 ```
@@ -711,51 +681,18 @@ gxr_vc_geography: "US-National, SF-Bay Area"
 gxr_vc_geography_at: "2024-12-04T15:30:00Z"
 gxr_vc_firm_type: "Operator-Led Fund, Technical Partners"
 gxr_vc_firm_type_at: "2024-12-04T15:30:00Z"
-gxr_vc_behavioral_traits: "Thesis-Driven, Founder-First, Hands-On Support"
-gxr_vc_behavioral_traits_at: "2024-12-04T15:30:00Z"
-gxr_vc_investment_thesis: "Focus on early-stage AI infrastructure and applied ML companies with strong technical founders"
-gxr_vc_investment_thesis_at: "2024-12-04T15:30:00Z"
-gxr_vc_is_active: true
-gxr_vc_is_active_at: "2024-12-04T15:30:00Z"
 ---
 ```
 
 #### Benefits of This Approach
 
-1. **Comprehensive Coverage**: 8 tags extracted in one LLM call instead of 8 separate calls
+1. **Comprehensive Coverage**: 5 tags extracted in one LLM call instead of 5 separate calls
 2. **Consistency**: All tags derived from the same model state, ensuring coherence
-3. **Efficiency**: ~87% reduction in API calls (8 calls → 1 call)
+3. **Efficiency**: ~80% reduction in API calls (5 calls → 1 call)
 4. **Graph-Ready**: Tags are structured for easy clustering and relationship mapping in GraphXR/KuzuDB
 5. **Taxonomy-Based**: Uses standardized categories that enable better graph analysis
+6. **Simple & Focused**: Core tags that are most useful for VC analysis and matching
 
-#### Advanced: Deep Analysis Variant
-
-For more accurate inference, you can create a variant with enhanced reasoning:
-
-```python
-TaskDefinition(
-    tag="gxr_vc_analysis_deep",
-    task_type=TaskType.MULTI,
-    name="VC Deep Analysis",
-    description="Enhanced VC analysis with reasoning and confidence scores",
-    prompt="""[Enhanced prompt with reasoning requirements]""",
-    tag_schema=[
-        # ... same tags as above ...
-        TagSchema(
-            tag="gxr_vc_confidence",
-            output_type=OutputType.NUMBER,
-            name="Confidence Score",
-            description="Confidence score 0-1 reflecting certainty of analysis"
-        ),
-        TagSchema(
-            tag="gxr_vc_reasoning",
-            output_type=OutputType.TEXT,
-            name="Analysis Reasoning",
-            description="Brief explanation of tag selections"
-        ),
-    ]
-)
-```
 
 ### 9.2 Person Profile Task
 
@@ -931,9 +868,6 @@ TaskDefinition(
 **E. Firm Characteristics**
 - Technical Partners, Operator-Led Fund, Corporate VC, Family Office, Government/Sovereign Fund, Impact-Oriented, AI-Native Fund, Security-Focused Fund, Hard-Tech Thesis
 
-**F. Behavioral / Decision-Style**
-- Conviction-Driven, Thesis-Driven, Metrics-Driven, Founder-First, Fast Decision Maker, Hands-On Support, Slow/Committee-Based, Follow-On Heavy
-
 ### Example JSON Response
 
 ```json
@@ -943,10 +877,7 @@ TaskDefinition(
     "gxr_vc_sectors": "AI/ML, DevTools, Enterprise SaaS, Data/Analytics",
     "gxr_vc_check_size": "Large Seed ($1M-$3M)",
     "gxr_vc_geography": "US-National, SF-Bay Area",
-    "gxr_vc_firm_type": "Operator-Led Fund, Technical Partners",
-    "gxr_vc_behavioral_traits": "Thesis-Driven, Founder-First, Hands-On Support",
-    "gxr_vc_investment_thesis": "Focus on early-stage AI infrastructure and applied ML companies with strong technical founders",
-    "gxr_vc_is_active": true
+    "gxr_vc_firm_type": "Operator-Led Fund, Technical Partners"
   }
 }
 ```
@@ -969,12 +900,6 @@ gxr_vc_geography: "US-National, SF-Bay Area"
 gxr_vc_geography_at: "2024-12-04T15:30:00Z"
 gxr_vc_firm_type: "Operator-Led Fund, Technical Partners"
 gxr_vc_firm_type_at: "2024-12-04T15:30:00Z"
-gxr_vc_behavioral_traits: "Thesis-Driven, Founder-First, Hands-On Support"
-gxr_vc_behavioral_traits_at: "2024-12-04T15:30:00Z"
-gxr_vc_investment_thesis: "Focus on early-stage AI infrastructure and applied ML companies with strong technical founders"
-gxr_vc_investment_thesis_at: "2024-12-04T15:30:00Z"
-gxr_vc_is_active: true
-gxr_vc_is_active_at: "2024-12-04T15:30:00Z"
 ---
 ```
 

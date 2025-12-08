@@ -52,7 +52,7 @@ class TaskDefinition(BaseModel):
 
 ### 5. Example: VC Analysis Task (Comprehensive)
 
-Real-world example with 8 tags extracted in one call:
+Real-world example with 5 tags extracted in one call:
 
 ```python
 TaskDefinition(
@@ -65,14 +65,11 @@ TaskDefinition(
         TagSchema(tag="gxr_vc_check_size", output_type="text"),
         TagSchema(tag="gxr_vc_geography", output_type="list"),
         TagSchema(tag="gxr_vc_firm_type", output_type="list"),
-        TagSchema(tag="gxr_vc_behavioral_traits", output_type="list"),
-        TagSchema(tag="gxr_vc_investment_thesis", output_type="text"),
-        TagSchema(tag="gxr_vc_is_active", output_type="boolean"),
     ]
 )
 ```
 
-**Result**: One LLM call generates all 8 tags simultaneously.
+**Result**: One LLM call generates all 5 tags simultaneously.
 
 **Tag Categories**:
 - Investment Stages (Pre-Seed, Seed, Series A, etc.)
@@ -80,9 +77,6 @@ TaskDefinition(
 - Check Size (Micro, Small Seed, Large Seed, etc.)
 - Geography (US-National, SF-Bay Area, EU/UK, etc.)
 - Firm Type (Operator-Led, Corporate VC, Technical Partners, etc.)
-- Behavioral Traits (Thesis-Driven, Founder-First, etc.)
-- Investment Thesis (text summary)
-- Active Status (boolean)
 
 See full example in `ai/multi_tag_tasks_design.md` section 9.1.
 
