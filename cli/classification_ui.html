@@ -641,6 +641,88 @@
             color: var(--accent-red);
         }
 
+        /* Tag Schema Editor */
+        .tag-schema-editor {
+            display: none;
+            margin-top: 1rem;
+        }
+
+        .tag-schema-editor.active {
+            display: block;
+        }
+
+        .tag-schema-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+        }
+
+        .tag-schema-item {
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 1rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 0.75rem;
+            align-items: start;
+        }
+
+        .tag-schema-item-header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .tag-schema-item-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--accent-cyan);
+        }
+
+        .tag-schema-item-remove {
+            background: var(--accent-red);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+
+        .tag-schema-item-remove:hover {
+            background: #d32f2f;
+        }
+
+        .tag-schema-add-btn {
+            margin-top: 0.75rem;
+            width: 100%;
+        }
+
+        .task-type-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-left: 0.5rem;
+        }
+
+        .task-type-badge.single {
+            background: rgba(88, 166, 255, 0.15);
+            color: var(--accent-blue);
+        }
+
+        .task-type-badge.multi {
+            background: rgba(163, 113, 247, 0.15);
+            color: var(--accent-purple);
+        }
+
         /* Responsive */
         @media (max-width: 900px) {
             .main {
@@ -701,10 +783,13 @@
                     <input type="text" class="form-input" id="form-tag" placeholder="gxr_interests" required pattern="gxr_.*">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Name</label>
-                    <input type="text" class="form-input" id="form-name" placeholder="Professional Interests">
+                    <label class="form-label">Task Type</label>
+                    <select class="form-select" id="form-task-type" onchange="toggleTaskType()">
+                        <option value="single">Single Tag (one tag per task)</option>
+                        <option value="multi">Multi Tag (multiple tags per task)</option>
+                    </select>
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="single-tag-fields">
                     <label class="form-label">Output Type</label>
                     <select class="form-select" id="form-type">
                         <option value="list">List (comma-separated)</option>
@@ -714,12 +799,25 @@
                     </select>
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <input type="text" class="form-input" id="form-name" placeholder="Professional Interests">
+                </div>
+                <div class="form-group">
                     <label class="form-label">Prompt</label>
                     <textarea class="form-textarea" id="form-prompt" placeholder="Analyze this note and extract..." required></textarea>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Description (optional)</label>
                     <input type="text" class="form-input" id="form-description" placeholder="What this task does">
+                </div>
+                <div class="tag-schema-editor" id="tag-schema-editor">
+                    <label class="form-label">Tag Schema</label>
+                    <div class="tag-schema-list" id="tag-schema-list">
+                        <!-- Tag schema items will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-secondary tag-schema-add-btn" onclick="addTagSchemaItem()">
+                        + Add Tag
+                    </button>
                 </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
@@ -803,7 +901,7 @@
                      onclick="selectTask('${task.tag}')">
                     <div class="task-item-header">
                         <span class="task-tag">${task.tag}</span>
-                        <span class="task-type">${task.output_type}</span>
+                        <span class="task-type">${task.task_type === 'multi' ? 'multi-tag' : task.output_type}</span>
                     </div>
                     <div class="task-name">${task.name || task.tag}</div>
                 </div>
@@ -853,13 +951,35 @@
                             <span class="form-label">Tag</span>
                             <div style="font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan);">
                                 ${selectedTask.tag}
+                                <span class="task-type-badge ${selectedTask.task_type}">
+                                    ${selectedTask.task_type === 'multi' ? 'Multi-Tag' : 'Single-Tag'}
+                                </span>
                             </div>
                         </div>
                         <div>
                             <span class="form-label">Output Type</span>
-                            <div>${selectedTask.output_type}</div>
+                            <div>${selectedTask.task_type === 'multi' ? 'Multiple tags' : selectedTask.output_type}</div>
                         </div>
                     </div>
+                    
+                    ${selectedTask.task_type === 'multi' && selectedTask.tag_schema ? `
+                    <div class="form-group">
+                        <span class="form-label">Tag Schema (${selectedTask.tag_schema.length} tags)</span>
+                        <div style="background: var(--bg-primary); padding: 1rem; border-radius: var(--radius-sm);">
+                            ${selectedTask.tag_schema.map(ts => `
+                                <div style="margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);">
+                                    <div style="font-family: 'JetBrains Mono', monospace; color: var(--accent-cyan); font-size: 0.85rem;">
+                                        ${ts.tag}
+                                    </div>
+                                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                                        ${ts.name || ts.tag} • ${ts.output_type}
+                                    </div>
+                                    ${ts.description ? `<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">${ts.description}</div>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
                     
                     <div class="form-group">
                         <span class="form-label">Prompt</span>
@@ -977,6 +1097,79 @@ ${selectedTask.prompt}
             `;
         }
 
+        // Tag Schema Management
+        function toggleTaskType() {
+            const taskType = document.getElementById('form-task-type').value;
+            const singleTagFields = document.getElementById('single-tag-fields');
+            const tagSchemaEditor = document.getElementById('tag-schema-editor');
+            
+            if (taskType === 'multi') {
+                singleTagFields.style.display = 'none';
+                tagSchemaEditor.classList.add('active');
+                // Ensure at least one tag schema item
+                if (document.getElementById('tag-schema-list').children.length === 0) {
+                    addTagSchemaItem();
+                }
+            } else {
+                singleTagFields.style.display = 'block';
+                tagSchemaEditor.classList.remove('active');
+            }
+        }
+
+        function addTagSchemaItem(tagData = null) {
+            const list = document.getElementById('tag-schema-list');
+            const item = document.createElement('div');
+            item.className = 'tag-schema-item';
+            item.innerHTML = `
+                <div class="tag-schema-item-header">
+                    <span class="tag-schema-item-tag">Tag ${list.children.length + 1}</span>
+                    <button type="button" class="tag-schema-item-remove" onclick="removeTagSchemaItem(this)">Remove</button>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.75rem;">Tag (gxr_*)</label>
+                    <input type="text" class="form-input" placeholder="gxr_tag_name" required pattern="gxr_.*" 
+                           value="${tagData?.tag || ''}" style="font-size: 0.85rem;">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-size: 0.75rem;">Output Type</label>
+                    <select class="form-select" style="font-size: 0.85rem;">
+                        <option value="list" ${tagData?.output_type === 'list' ? 'selected' : ''}>List</option>
+                        <option value="text" ${tagData?.output_type === 'text' ? 'selected' : ''}>Text</option>
+                        <option value="boolean" ${tagData?.output_type === 'boolean' ? 'selected' : ''}>Boolean</option>
+                        <option value="number" ${tagData?.output_type === 'number' ? 'selected' : ''}>Number</option>
+                    </select>
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="form-label" style="font-size: 0.75rem;">Name (optional)</label>
+                    <input type="text" class="form-input" placeholder="Display name" 
+                           value="${tagData?.name || ''}" style="font-size: 0.85rem;">
+                </div>
+                <div class="form-group" style="grid-column: 1 / -1;">
+                    <label class="form-label" style="font-size: 0.75rem;">Description (optional)</label>
+                    <input type="text" class="form-input" placeholder="Description" 
+                           value="${tagData?.description || ''}" style="font-size: 0.85rem;">
+                </div>
+            `;
+            list.appendChild(item);
+        }
+
+        function removeTagSchemaItem(button) {
+            button.closest('.tag-schema-item').remove();
+        }
+
+        function getTagSchemaFromForm() {
+            const items = document.querySelectorAll('.tag-schema-item');
+            return Array.from(items).map(item => {
+                const inputs = item.querySelectorAll('input, select');
+                return {
+                    tag: inputs[0].value,
+                    output_type: inputs[1].value,
+                    name: inputs[2].value || null,
+                    description: inputs[3].value || null
+                };
+            });
+        }
+
         // Modal functions
         function showCreateModal() {
             editMode = false;
@@ -984,10 +1177,13 @@ ${selectedTask.prompt}
             document.getElementById('form-submit').textContent = 'Create Task';
             document.getElementById('form-tag').value = 'gxr_';
             document.getElementById('form-tag').disabled = false;
+            document.getElementById('form-task-type').value = 'single';
             document.getElementById('form-name').value = '';
             document.getElementById('form-type').value = 'list';
             document.getElementById('form-prompt').value = '';
             document.getElementById('form-description').value = '';
+            document.getElementById('tag-schema-list').innerHTML = '';
+            toggleTaskType();
             document.getElementById('task-modal').classList.add('active');
         }
 
@@ -997,10 +1193,22 @@ ${selectedTask.prompt}
             document.getElementById('form-submit').textContent = 'Save Changes';
             document.getElementById('form-tag').value = selectedTask.tag;
             document.getElementById('form-tag').disabled = true;
+            document.getElementById('form-task-type').value = selectedTask.task_type || 'single';
             document.getElementById('form-name').value = selectedTask.name || '';
             document.getElementById('form-type').value = selectedTask.output_type;
             document.getElementById('form-prompt').value = selectedTask.prompt;
             document.getElementById('form-description').value = selectedTask.description || '';
+            
+            // Populate tag schema if multi-tag task
+            const tagSchemaList = document.getElementById('tag-schema-list');
+            tagSchemaList.innerHTML = '';
+            if (selectedTask.task_type === 'multi' && selectedTask.tag_schema) {
+                selectedTask.tag_schema.forEach(tagData => {
+                    addTagSchemaItem(tagData);
+                });
+            }
+            
+            toggleTaskType();
             document.getElementById('task-modal').classList.add('active');
         }
 
@@ -1011,13 +1219,25 @@ ${selectedTask.prompt}
         async function saveTask(e) {
             e.preventDefault();
             
+            const taskType = document.getElementById('form-task-type').value;
             const data = {
                 tag: document.getElementById('form-tag').value,
+                task_type: taskType,
                 name: document.getElementById('form-name').value || null,
                 output_type: document.getElementById('form-type').value,
                 prompt: document.getElementById('form-prompt').value,
                 description: document.getElementById('form-description').value || null
             };
+            
+            // Add tag_schema for multi-tag tasks
+            if (taskType === 'multi') {
+                const tagSchema = getTagSchemaFromForm();
+                if (tagSchema.length === 0) {
+                    toast('Multi-tag tasks must have at least one tag in the schema', 'error');
+                    return;
+                }
+                data.tag_schema = tagSchema;
+            }
             
             try {
                 if (editMode) {
