@@ -29,7 +29,7 @@ cli_path = Path(__file__).parent
 if str(cli_path) not in sys.path:
     sys.path.insert(0, str(cli_path))
 
-from classification import TaskDefinition, OutputType, TaskDatabase, Classifier
+from classification import TaskDefinition, OutputType, TaskType, TagSchema, TaskDatabase, Classifier
 from config_loader import get_config_loader
 
 # Initialize app
@@ -73,12 +73,22 @@ def get_classifier() -> Classifier:
 
 # ==================== Pydantic Models ====================
 
+class TagSchemaInput(BaseModel):
+    """Input schema for tag in multi-tag task"""
+    tag: str
+    output_type: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class TaskCreate(BaseModel):
     tag: str
+    task_type: str = "single"  # "single" or "multi"
     prompt: str
     name: Optional[str] = None
     description: Optional[str] = None
-    output_type: str = "text"
+    output_type: str = "text"  # For single-tag or primary type
+    tag_schema: Optional[List[TagSchemaInput]] = None  # For multi-tag tasks
     model: Optional[str] = None
 
 
@@ -87,6 +97,8 @@ class TaskUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     output_type: Optional[str] = None
+    task_type: Optional[str] = None
+    tag_schema: Optional[List[TagSchemaInput]] = None
     model: Optional[str] = None
 
 
@@ -98,13 +110,23 @@ class RunRequest(BaseModel):
     store_timestamp: bool = False
 
 
+class TagSchemaResponse(BaseModel):
+    """Response schema for tag in multi-tag task"""
+    tag: str
+    output_type: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class TaskResponse(BaseModel):
     id: Optional[int]
     tag: str
+    task_type: str
     name: Optional[str]
     description: Optional[str]
     prompt: str
     output_type: str
+    tag_schema: Optional[List[TagSchemaResponse]] = None
     model: Optional[str]
     enabled: bool
     created_at: Optional[str]
@@ -131,10 +153,20 @@ async def list_tasks(enabled_only: bool = False):
         TaskResponse(
             id=t.id,
             tag=t.tag,
+            task_type=t.task_type.value,
             name=t.name,
             description=t.description,
             prompt=t.prompt,
             output_type=t.output_type.value,
+            tag_schema=[
+                TagSchemaResponse(
+                    tag=ts.tag,
+                    output_type=ts.output_type.value,
+                    name=ts.name,
+                    description=ts.description
+                )
+                for ts in t.tag_schema
+            ] if t.tag_schema else None,
             model=t.model,
             enabled=t.enabled,
             created_at=t.created_at.isoformat() if t.created_at else None,
@@ -154,10 +186,20 @@ async def get_task(tag: str):
     return TaskResponse(
         id=task.id,
         tag=task.tag,
+        task_type=task.task_type.value,
         name=task.name,
         description=task.description,
         prompt=task.prompt,
         output_type=task.output_type.value,
+        tag_schema=[
+            TagSchemaResponse(
+                tag=ts.tag,
+                output_type=ts.output_type.value,
+                name=ts.name,
+                description=ts.description
+            )
+            for ts in task.tag_schema
+        ] if task.tag_schema else None,
         model=task.model,
         enabled=task.enabled,
         created_at=task.created_at.isoformat() if task.created_at else None,
@@ -175,12 +217,27 @@ async def create_task(task: TaskCreate):
         raise HTTPException(status_code=400, detail=f"Task already exists: {task.tag}")
     
     try:
+        # Convert tag_schema input to TagSchema objects
+        tag_schema = None
+        if task.tag_schema:
+            tag_schema = [
+                TagSchema(
+                    tag=ts.tag,
+                    output_type=OutputType(ts.output_type),
+                    name=ts.name,
+                    description=ts.description
+                )
+                for ts in task.tag_schema
+            ]
+        
         task_def = TaskDefinition(
             tag=task.tag,
+            task_type=TaskType(task.task_type),
             prompt=task.prompt,
             name=task.name,
             description=task.description,
             output_type=OutputType(task.output_type),
+            tag_schema=tag_schema,
             model=task.model,
             enabled=True
         )
@@ -207,7 +264,21 @@ async def update_task(tag: str, updates: TaskUpdate):
     if updates.description is not None:
         update_dict['description'] = updates.description
     if updates.output_type is not None:
-        update_dict['output_type'] = updates.output_type
+        update_dict['output_type'] = OutputType(updates.output_type)
+    if updates.task_type is not None:
+        update_dict['task_type'] = TaskType(updates.task_type)
+    if updates.tag_schema is not None:
+        # Convert tag_schema input to TagSchema objects
+        tag_schema = [
+            TagSchema(
+                tag=ts.tag,
+                output_type=OutputType(ts.output_type),
+                name=ts.name,
+                description=ts.description
+            )
+            for ts in updates.tag_schema
+        ]
+        update_dict['tag_schema'] = tag_schema
     if updates.model is not None:
         update_dict['model'] = updates.model
     
