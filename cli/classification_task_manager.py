@@ -20,6 +20,7 @@ Usage:
 
 import asyncio
 import sys
+import json
 from pathlib import Path
 from typing import Optional, List
 
@@ -32,7 +33,7 @@ cli_path = Path(__file__).parent
 if str(cli_path) not in sys.path:
     sys.path.insert(0, str(cli_path))
 
-from classification import TaskDefinition, OutputType, TaskDatabase, Classifier
+from classification import TaskDefinition, OutputType, TaskType, TagSchema, TaskDatabase, Classifier
 from config_loader import get_config_loader
 
 console = Console()
@@ -83,16 +84,21 @@ def list_tasks(enabled_only: bool):
     table.add_column("Tag", style="cyan")
     table.add_column("Name")
     table.add_column("Type", style="green")
+    table.add_column("Task Type", style="blue")
     table.add_column("Enabled", justify="center")
     table.add_column("Description")
     
     for task in tasks:
         enabled = "✓" if task.enabled else "✗"
         enabled_style = "green" if task.enabled else "red"
+        task_type_display = "multi" if task.task_type == TaskType.MULTI else "single"
+        if task.task_type == TaskType.MULTI and task.tag_schema:
+            task_type_display += f" ({len(task.tag_schema)} tags)"
         table.add_row(
             task.tag,
             task.name or "-",
             task.output_type.value,
+            task_type_display,
             f"[{enabled_style}]{enabled}[/{enabled_style}]",
             (task.description or "-")[:50] + "..." if task.description and len(task.description) > 50 else (task.description or "-")
         )
@@ -111,7 +117,10 @@ def show_task(tag: str):
         console.print(f"[red]Task not found: {tag}[/red]")
         return
     
-    console.print(f"\n[bold cyan]Task: {task.tag}[/bold cyan]")
+    task_type_str = "Multi-Tag" if task.task_type == TaskType.MULTI else "Single-Tag"
+    task_type_color = "purple" if task.task_type == TaskType.MULTI else "blue"
+    
+    console.print(f"\n[bold cyan]Task: {task.tag}[/bold cyan] [{task_type_color}]{task_type_str}[/{task_type_color}]")
     console.print(f"  Name: {task.name or '-'}")
     console.print(f"  Description: {task.description or '-'}")
     console.print(f"  Output Type: [green]{task.output_type.value}[/green]")
@@ -119,6 +128,16 @@ def show_task(tag: str):
     console.print(f"  Enabled: {'[green]Yes[/green]' if task.enabled else '[red]No[/red]'}")
     console.print(f"  Created: {task.created_at}")
     console.print(f"  Updated: {task.updated_at}")
+    
+    if task.task_type == TaskType.MULTI and task.tag_schema:
+        console.print(f"\n[bold]Tag Schema ({len(task.tag_schema)} tags):[/bold]")
+        for ts in task.tag_schema:
+            console.print(f"  • [cyan]{ts.tag}[/cyan] ({ts.output_type.value})")
+            if ts.name:
+                console.print(f"    Name: {ts.name}")
+            if ts.description:
+                console.print(f"    Description: {ts.description}")
+    
     console.print(f"\n[bold]Prompt:[/bold]")
     console.print(f"  {task.prompt}")
 
@@ -128,10 +147,20 @@ def show_task(tag: str):
 @click.option('--prompt', required=True, help='LLM prompt for classification')
 @click.option('--name', default=None, help='Human-readable name')
 @click.option('--description', default=None, help='Task description')
-@click.option('--output-type', type=click.Choice(['list', 'text', 'boolean', 'number']), required=True, help='Output type')
+@click.option('--output-type', type=click.Choice(['list', 'text', 'boolean', 'number']), required=True, help='Output type (for single-tag tasks)')
+@click.option('--task-type', type=click.Choice(['single', 'multi']), default='single', help='Task type: single or multi')
+@click.option('--tag-schema', default=None, help='Tag schema JSON file path (for multi-tag tasks)')
 @click.option('--model', default=None, help='Override LLM model')
-def add_task(tag: str, prompt: str, name: str, description: str, output_type: str, model: str):
-    """Add a new classification task"""
+def add_task(tag: str, prompt: str, name: str, description: str, output_type: str, task_type: str, tag_schema: str, model: str):
+    """Add a new classification task
+    
+    For multi-tag tasks, use --tag-schema to specify a JSON file with tag definitions.
+    Example tag-schema.json:
+    [
+        {"tag": "gxr_vc_stages", "output_type": "list", "name": "Stages"},
+        {"tag": "gxr_vc_sectors", "output_type": "list", "name": "Sectors"}
+    ]
+    """
     db = get_db()
     
     # Check if tag already exists
@@ -141,21 +170,55 @@ def add_task(tag: str, prompt: str, name: str, description: str, output_type: st
         return
     
     try:
+        # Parse tag schema for multi-tag tasks
+        tag_schema_list = None
+        if task_type == 'multi':
+            if not tag_schema:
+                console.print("[red]Error: --tag-schema is required for multi-tag tasks[/red]")
+                console.print("[yellow]Use --tag-schema <json-file> to specify tag definitions[/yellow]")
+                return
+            
+            import json
+            schema_path = Path(tag_schema)
+            if not schema_path.exists():
+                console.print(f"[red]Tag schema file not found: {tag_schema}[/red]")
+                return
+            
+            with open(schema_path, 'r') as f:
+                schema_data = json.load(f)
+            
+            tag_schema_list = [
+                TagSchema(
+                    tag=item['tag'],
+                    output_type=OutputType(item['output_type']),
+                    name=item.get('name'),
+                    description=item.get('description')
+                )
+                for item in schema_data
+            ]
+        
         task = TaskDefinition(
             tag=tag,
+            task_type=TaskType(task_type),
             prompt=prompt,
             name=name,
             description=description,
             output_type=OutputType(output_type),
+            tag_schema=tag_schema_list,
             model=model,
             enabled=True
         )
         
         task_id = db.create_task(task)
-        console.print(f"[green]✓ Created task: {tag} (id={task_id})[/green]")
+        task_type_str = "multi-tag" if task_type == 'multi' else "single-tag"
+        console.print(f"[green]✓ Created {task_type_str} task: {tag} (id={task_id})[/green]")
+        if task_type == 'multi' and tag_schema_list:
+            console.print(f"[dim]  Tags: {len(tag_schema_list)} tags defined[/dim]")
         
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
+    except json.JSONDecodeError as e:
+        console.print(f"[red]Error parsing tag schema JSON: {e}[/red]")
 
 
 @cli.command('edit-task')
@@ -164,9 +227,13 @@ def add_task(tag: str, prompt: str, name: str, description: str, output_type: st
 @click.option('--name', default=None, help='New name')
 @click.option('--description', default=None, help='New description')
 @click.option('--output-type', type=click.Choice(['list', 'text', 'boolean', 'number']), default=None, help='New output type')
+@click.option('--tag-schema', default=None, help='Tag schema JSON file path (for multi-tag tasks)')
 @click.option('--model', default=None, help='New model override')
-def edit_task(tag: str, prompt: str, name: str, description: str, output_type: str, model: str):
-    """Edit an existing task"""
+def edit_task(tag: str, prompt: str, name: str, description: str, output_type: str, tag_schema: str, model: str):
+    """Edit an existing task
+    
+    For multi-tag tasks, use --tag-schema to update tag definitions.
+    """
     db = get_db()
     
     task = db.get_task(tag)
@@ -182,9 +249,34 @@ def edit_task(tag: str, prompt: str, name: str, description: str, output_type: s
     if description is not None:
         updates['description'] = description
     if output_type is not None:
-        updates['output_type'] = output_type
+        updates['output_type'] = OutputType(output_type)
     if model is not None:
         updates['model'] = model
+    
+    # Handle tag schema update for multi-tag tasks
+    if tag_schema is not None:
+        if task.task_type != TaskType.MULTI:
+            console.print("[yellow]Warning: --tag-schema only applies to multi-tag tasks[/yellow]")
+        else:
+            import json
+            schema_path = Path(tag_schema)
+            if not schema_path.exists():
+                console.print(f"[red]Tag schema file not found: {tag_schema}[/red]")
+                return
+            
+            with open(schema_path, 'r') as f:
+                schema_data = json.load(f)
+            
+            tag_schema_list = [
+                TagSchema(
+                    tag=item['tag'],
+                    output_type=OutputType(item['output_type']),
+                    name=item.get('name'),
+                    description=item.get('description')
+                )
+                for item in schema_data
+            ]
+            updates['tag_schema'] = tag_schema_list
     
     if not updates:
         console.print("[yellow]No updates provided[/yellow]")
