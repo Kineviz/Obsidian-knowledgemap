@@ -5,13 +5,15 @@ Provides structured classification/extraction tasks on notes with LLM support.
 Results are stored in YAML frontmatter metadata.
 """
 
-from .models import TaskDefinition, OutputType, ClassificationResult
+from .models import TaskDefinition, OutputType, TaskType, TagSchema, ClassificationResult
 from .database import TaskDatabase
 from .classifier import Classifier
 
 __all__ = [
     'TaskDefinition',
-    'OutputType', 
+    'OutputType',
+    'TaskType',
+    'TagSchema',
     'ClassificationResult',
     'TaskDatabase',
     'Classifier',

@@ -3,8 +3,8 @@ Pydantic models for Classification Task System
 """
 
 from enum import Enum
-from pydantic import BaseModel, field_validator
-from typing import Optional, Any
+from pydantic import BaseModel, field_validator, model_validator
+from typing import Optional, Any, List
 from datetime import datetime
 
 
@@ -16,15 +16,38 @@ class OutputType(str, Enum):
     NUMBER = "number"
 
 
+class TaskType(str, Enum):
+    """Task type: single-tag or multi-tag"""
+    SINGLE = "single"
+    MULTI = "multi"
+
+
+class TagSchema(BaseModel):
+    """Schema for a single tag in a multi-tag task"""
+    tag: str
+    output_type: OutputType
+    name: Optional[str] = None
+    description: Optional[str] = None
+    
+    @field_validator('tag')
+    @classmethod
+    def tag_must_start_with_gxr(cls, v: str) -> str:
+        if not v.startswith('gxr_'):
+            raise ValueError('tag must start with "gxr_"')
+        return v
+
+
 class TaskDefinition(BaseModel):
     """Definition of a classification task"""
     id: Optional[int] = None
     tag: str                            # Must start with "gxr_"
+    task_type: TaskType = TaskType.SINGLE  # NEW: single or multi
     prompt: str
     name: Optional[str] = None
     description: Optional[str] = None
     model: Optional[str] = None         # Override model (null = use default)
     output_type: OutputType
+    tag_schema: Optional[List[TagSchema]] = None  # NEW: For multi-tag tasks
     enabled: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -35,6 +58,22 @@ class TaskDefinition(BaseModel):
         if not v.startswith('gxr_'):
             raise ValueError('tag must start with "gxr_"')
         return v
+    
+    @model_validator(mode='after')
+    def validate_task_type(self):
+        """Validate task configuration based on type"""
+        if self.task_type == TaskType.MULTI:
+            if not self.tag_schema or len(self.tag_schema) == 0:
+                raise ValueError('Multi-tag tasks must have tag_schema')
+            # Validate all tags in schema start with gxr_
+            for tag_def in self.tag_schema:
+                if not tag_def.tag.startswith('gxr_'):
+                    raise ValueError(f'All tags in schema must start with "gxr_": {tag_def.tag}')
+        elif self.task_type == TaskType.SINGLE:
+            # Single-tag tasks don't need tag_schema
+            if self.tag_schema:
+                raise ValueError('Single-tag tasks should not have tag_schema')
+        return self
     
     def get_display_name(self) -> str:
         """Get display name (name if set, otherwise tag)"""

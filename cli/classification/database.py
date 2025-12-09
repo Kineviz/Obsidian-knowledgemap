@@ -3,12 +3,13 @@ SQLite Database for Classification Tasks
 """
 
 import sqlite3
+import json
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
-from .models import TaskDefinition, OutputType, ClassificationResult
+from .models import TaskDefinition, OutputType, TaskType, TagSchema, ClassificationResult
 
 
 class TaskDatabase:
@@ -39,6 +40,24 @@ class TaskDatabase:
                     created_at REAL DEFAULT (julianday('now')),
                     updated_at REAL DEFAULT (julianday('now'))
                 )
+            """)
+            
+            # Migration: Add new columns if they don't exist
+            try:
+                cursor.execute("ALTER TABLE classification_tasks ADD COLUMN task_type TEXT DEFAULT 'single'")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            try:
+                cursor.execute("ALTER TABLE classification_tasks ADD COLUMN tag_schema TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            # Update existing rows to have task_type = 'single' if NULL
+            cursor.execute("""
+                UPDATE classification_tasks 
+                SET task_type = 'single' 
+                WHERE task_type IS NULL
             """)
             
             # Classification Runs Table
@@ -77,18 +96,51 @@ class TaskDatabase:
     
     def _row_to_task(self, row: tuple) -> TaskDefinition:
         """Convert database row to TaskDefinition"""
-        return TaskDefinition(
-            id=row[0],
-            tag=row[1],
-            name=row[2],
-            description=row[3],
-            prompt=row[4],
-            model=row[5],
-            output_type=OutputType(row[6]),
-            enabled=bool(row[7]),
-            created_at=self._julian_to_datetime(row[8]),
-            updated_at=self._julian_to_datetime(row[9])
-        )
+        # Handle both old schema (9 fields) and new schema (11 fields)
+        if len(row) >= 11:
+            # New schema with task_type and tag_schema
+            task_type = TaskType(row[10] if row[10] else 'single')
+            tag_schema_json = row[11] if len(row) > 11 else None
+            
+            # Parse tag_schema from JSON
+            tag_schema = None
+            if tag_schema_json:
+                try:
+                    tag_schema_data = json.loads(tag_schema_json)
+                    tag_schema = [TagSchema(**item) for item in tag_schema_data]
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    tag_schema = None
+            
+            return TaskDefinition(
+                id=row[0],
+                tag=row[1],
+                name=row[2],
+                description=row[3],
+                prompt=row[4],
+                model=row[5],
+                output_type=OutputType(row[6]),
+                enabled=bool(row[7]),
+                created_at=self._julian_to_datetime(row[8]),
+                updated_at=self._julian_to_datetime(row[9]),
+                task_type=task_type,
+                tag_schema=tag_schema
+            )
+        else:
+            # Old schema - default to single task type
+            return TaskDefinition(
+                id=row[0],
+                tag=row[1],
+                name=row[2],
+                description=row[3],
+                prompt=row[4],
+                model=row[5],
+                output_type=OutputType(row[6]),
+                enabled=bool(row[7]),
+                created_at=self._julian_to_datetime(row[8]),
+                updated_at=self._julian_to_datetime(row[9]),
+                task_type=TaskType.SINGLE,
+                tag_schema=None
+            )
     
     # ==================== CRUD Operations ====================
     
@@ -96,9 +148,23 @@ class TaskDatabase:
         """Create a new classification task"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+            
+            # Serialize tag_schema to JSON
+            tag_schema_json = None
+            if task.tag_schema:
+                tag_schema_json = json.dumps([
+                    {
+                        'tag': ts.tag,
+                        'output_type': ts.output_type.value,
+                        'name': ts.name,
+                        'description': ts.description
+                    }
+                    for ts in task.tag_schema
+                ])
+            
             cursor.execute("""
-                INSERT INTO classification_tasks (tag, name, description, prompt, model, output_type, enabled)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO classification_tasks (tag, name, description, prompt, model, output_type, enabled, task_type, tag_schema)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 task.tag,
                 task.name,
@@ -106,7 +172,9 @@ class TaskDatabase:
                 task.prompt,
                 task.model,
                 task.output_type.value,
-                1 if task.enabled else 0
+                1 if task.enabled else 0,
+                task.task_type.value,
+                tag_schema_json
             ))
             conn.commit()
             return cursor.lastrowid
@@ -115,10 +183,18 @@ class TaskDatabase:
         """Get a task by tag"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at
-                FROM classification_tasks WHERE tag = ?
-            """, (tag,))
+            # Try new schema first, fallback to old schema
+            try:
+                cursor.execute("""
+                    SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at, task_type, tag_schema
+                    FROM classification_tasks WHERE tag = ?
+                """, (tag,))
+            except sqlite3.OperationalError:
+                # Fallback to old schema
+                cursor.execute("""
+                    SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at
+                    FROM classification_tasks WHERE tag = ?
+                """, (tag,))
             row = cursor.fetchone()
             if row:
                 return self._row_to_task(row)
@@ -128,10 +204,18 @@ class TaskDatabase:
         """Get a task by ID"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at
-                FROM classification_tasks WHERE id = ?
-            """, (task_id,))
+            # Try new schema first, fallback to old schema
+            try:
+                cursor.execute("""
+                    SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at, task_type, tag_schema
+                    FROM classification_tasks WHERE id = ?
+                """, (task_id,))
+            except sqlite3.OperationalError:
+                # Fallback to old schema
+                cursor.execute("""
+                    SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at
+                    FROM classification_tasks WHERE id = ?
+                """, (task_id,))
             row = cursor.fetchone()
             if row:
                 return self._row_to_task(row)
@@ -141,16 +225,30 @@ class TaskDatabase:
         """Get all tasks"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            if enabled_only:
-                cursor.execute("""
-                    SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at
-                    FROM classification_tasks WHERE enabled = 1 ORDER BY tag
-                """)
-            else:
-                cursor.execute("""
-                    SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at
-                    FROM classification_tasks ORDER BY tag
-                """)
+            # Try new schema first, fallback to old schema
+            try:
+                if enabled_only:
+                    cursor.execute("""
+                        SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at, task_type, tag_schema
+                        FROM classification_tasks WHERE enabled = 1 ORDER BY tag
+                    """)
+                else:
+                    cursor.execute("""
+                        SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at, task_type, tag_schema
+                        FROM classification_tasks ORDER BY tag
+                    """)
+            except sqlite3.OperationalError:
+                # Fallback to old schema
+                if enabled_only:
+                    cursor.execute("""
+                        SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at
+                        FROM classification_tasks WHERE enabled = 1 ORDER BY tag
+                    """)
+                else:
+                    cursor.execute("""
+                        SELECT id, tag, name, description, prompt, model, output_type, enabled, created_at, updated_at
+                        FROM classification_tasks ORDER BY tag
+                    """)
             rows = cursor.fetchall()
             return [self._row_to_task(row) for row in rows]
     
@@ -163,14 +261,33 @@ class TaskDatabase:
         set_parts = []
         values = []
         for key, value in updates.items():
-            if key in ('tag', 'name', 'description', 'prompt', 'model', 'output_type', 'enabled'):
+            if key in ('tag', 'name', 'description', 'prompt', 'model', 'output_type', 'enabled', 'task_type'):
                 set_parts.append(f"{key} = ?")
                 if key == 'output_type' and isinstance(value, OutputType):
+                    values.append(value.value)
+                elif key == 'task_type' and isinstance(value, TaskType):
                     values.append(value.value)
                 elif key == 'enabled':
                     values.append(1 if value else 0)
                 else:
                     values.append(value)
+            elif key == 'tag_schema':
+                # Serialize tag_schema to JSON
+                if value is None:
+                    set_parts.append("tag_schema = ?")
+                    values.append(None)
+                else:
+                    tag_schema_json = json.dumps([
+                        {
+                            'tag': ts.tag if isinstance(ts, TagSchema) else ts.get('tag'),
+                            'output_type': ts.output_type.value if isinstance(ts, TagSchema) else ts.get('output_type'),
+                            'name': ts.name if isinstance(ts, TagSchema) else ts.get('name'),
+                            'description': ts.description if isinstance(ts, TagSchema) else ts.get('description')
+                        }
+                        for ts in value
+                    ])
+                    set_parts.append("tag_schema = ?")
+                    values.append(tag_schema_json)
         
         if not set_parts:
             return False

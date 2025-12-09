@@ -84,13 +84,14 @@ gxr_professional_interests_at: "2025-12-04T23:42:13.720484"  # Only if --store-t
 import asyncio
 import time
 import re
+import json
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple, Callable
 from datetime import datetime
 
 from rich.console import Console
 
-from .models import TaskDefinition, OutputType
+from .models import TaskDefinition, OutputType, TaskType, TagSchema
 from .database import TaskDatabase
 
 console = Console()
@@ -267,8 +268,27 @@ Return ONLY the result, no explanation, no quotes around the result."""
         if not task.enabled:
             return False, None, f"Task is disabled: {task_tag}"
         
+        # Route to single or multi-tag classification
+        if task.task_type == TaskType.MULTI:
+            return await self._classify_note_multi(task, note_path, force, dry_run, store_timestamp)
+        else:
+            return await self._classify_note_single(task, note_path, force, dry_run, store_timestamp)
+    
+    async def _classify_note_single(
+        self,
+        task: TaskDefinition,
+        note_path: str,
+        force: bool,
+        dry_run: bool,
+        store_timestamp: bool
+    ) -> Tuple[bool, Optional[Any], Optional[str]]:
+        """Classify note with single-tag task (original implementation)"""
+        # Resolve path
+        full_path = self._resolve_note_path(note_path)
+        relative_path = str(full_path.relative_to(self.vault_path))
+        
         # Check if already classified
-        if not force and self.is_classified(full_path, task_tag):
+        if not force and self.is_classified(full_path, task.tag):
             console.print(f"[dim]Skipping (already classified): {relative_path}[/dim]")
             return True, None, "already_classified"
         
@@ -292,7 +312,6 @@ Return ONLY the result, no explanation, no quotes around the result."""
             
             # Get LLM response
             llm = self._get_llm_client()
-            model_override = task.model  # Task-specific model override
             
             # Use skip_relationship_suffix=True to prevent relationship extraction prompt from being appended
             response = await llm.generate(messages, skip_relationship_suffix=True)
@@ -316,13 +335,211 @@ Return ONLY the result, no explanation, no quotes around the result."""
                 processing_time_ms
             )
             
-            console.print(f"[green]✓ Classified: {relative_path}[/green] → {task_tag}: {result}")
+            console.print(f"[green]✓ Classified: {relative_path}[/green] → {task.tag}: {result}")
             return True, result, None
             
         except Exception as e:
             self.task_db.record_run_failed(run_id, str(e))
             console.print(f"[red]✗ Failed: {relative_path} - {e}[/red]")
             return False, None, str(e)
+    
+    async def _classify_note_multi(
+        self,
+        task: TaskDefinition,
+        note_path: str,
+        force: bool,
+        dry_run: bool,
+        store_timestamp: bool
+    ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+        """Classify note with multi-tag task"""
+        # Resolve path
+        full_path = self._resolve_note_path(note_path)
+        relative_path = str(full_path.relative_to(self.vault_path))
+        
+        # Check if note exists
+        if not full_path.exists():
+            return False, None, f"Note not found: {note_path}"
+        
+        # Check if already classified (all tags present)
+        if not force:
+            metadata = self._get_metadata(full_path)
+            if metadata:
+                all_tags_present = all(
+                    tag_schema.tag in metadata 
+                    for tag_schema in task.tag_schema
+                )
+                if all_tags_present:
+                    console.print(f"[dim]Skipping (already classified): {relative_path}[/dim]")
+                    return True, None, "already_classified"
+        
+        if dry_run:
+            console.print(f"[cyan]Would classify: {relative_path}[/cyan]")
+            return True, None, "dry_run"
+        
+        # Record run start
+        run_id = self.task_db.record_run_start(task.id, relative_path)
+        start_time = time.time()
+        
+        try:
+            # Read note content
+            note_content = self._read_note_content(full_path)
+            if not note_content.strip():
+                self.task_db.record_run_failed(run_id, "Note content is empty")
+                return False, None, "Note content is empty"
+            
+            # Build prompt
+            messages = self._build_multi_tag_prompt(task, note_content)
+            
+            # Get LLM response
+            llm = self._get_llm_client()
+            
+            # Use skip_relationship_suffix=True to prevent relationship extraction prompt from being appended
+            response = await llm.generate(messages, skip_relationship_suffix=True)
+            
+            if not response.success:
+                self.task_db.record_run_failed(run_id, response.error or "LLM request failed")
+                return False, None, response.error or "LLM request failed"
+            
+            # Parse JSON response
+            try:
+                parsed = json.loads(response.content)
+                results = parsed.get('results', {})
+            except json.JSONDecodeError as e:
+                # Try to extract JSON from markdown code blocks
+                content = response.content.strip()
+                if '```json' in content:
+                    json_start = content.find('```json') + 7
+                    json_end = content.find('```', json_start)
+                    if json_end > json_start:
+                        content = content[json_start:json_end].strip()
+                elif '```' in content:
+                    json_start = content.find('```') + 3
+                    json_end = content.find('```', json_start)
+                    if json_end > json_start:
+                        content = content[json_start:json_end].strip()
+                
+                try:
+                    parsed = json.loads(content)
+                    results = parsed.get('results', {})
+                except json.JSONDecodeError:
+                    self.task_db.record_run_failed(run_id, f"Invalid JSON response: {e}")
+                    return False, None, f"Invalid JSON response: {e}"
+            
+            # Validate all expected tags are present
+            missing_tags = [
+                ts.tag for ts in task.tag_schema 
+                if ts.tag not in results
+            ]
+            if missing_tags:
+                self.task_db.record_run_failed(
+                    run_id, 
+                    f"Missing tags in response: {', '.join(missing_tags)}"
+                )
+                return False, None, f"Missing tags in response: {', '.join(missing_tags)}"
+            
+            # Parse and validate each result
+            parsed_results = {}
+            for tag_schema in task.tag_schema:
+                raw_value = results[tag_schema.tag]
+                parsed_value = self._parse_result(str(raw_value), tag_schema.output_type)
+                parsed_results[tag_schema.tag] = parsed_value
+            
+            # Store all tags in frontmatter
+            for tag_schema in task.tag_schema:
+                value = parsed_results[tag_schema.tag]
+                self._store_result_multi(full_path, tag_schema, value, store_timestamp=store_timestamp)
+            
+            # Record success (store JSON of all results)
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            result_json = json.dumps(parsed_results)
+            self.task_db.record_run_complete(
+                run_id,
+                result_json,
+                response.model,
+                processing_time_ms
+            )
+            
+            console.print(f"[green]✓ Classified: {relative_path}[/green] → {len(parsed_results)} tags")
+            return True, parsed_results, None
+            
+        except Exception as e:
+            self.task_db.record_run_failed(run_id, str(e))
+            console.print(f"[red]✗ Failed: {relative_path} - {e}[/red]")
+            return False, None, str(e)
+    
+    def _build_multi_tag_prompt(self, task: TaskDefinition, note_content: str) -> List[Dict[str, str]]:
+        """Build prompt for multi-tag classification"""
+        # Build tag descriptions for prompt
+        tag_descriptions = []
+        for tag_schema in task.tag_schema:
+            desc = f"- {tag_schema.tag}: {tag_schema.description or tag_schema.name or tag_schema.tag}"
+            desc += f" (type: {tag_schema.output_type.value})"
+            tag_descriptions.append(desc)
+        
+        # Build output format rules
+        type_instructions = {
+            'list': 'Comma-separated list (e.g., "item1, item2, item3"). Return empty string if nothing found.',
+            'text': 'Text string. Return empty string if nothing found.',
+            'boolean': 'Exactly "true" or "false".',
+            'number': 'Number. Return 0 if cannot determine.'
+        }
+        
+        format_rules = []
+        for ts in task.tag_schema:
+            format_rules.append(f'- {ts.tag}: {type_instructions[ts.output_type.value]}')
+        
+        # Build JSON structure example
+        json_example = "{\n    \"results\": {\n"
+        for ts in task.tag_schema:
+            if ts.output_type == OutputType.LIST:
+                example_value = '"item1, item2"'
+            elif ts.output_type == OutputType.TEXT:
+                example_value = '"text value"'
+            elif ts.output_type == OutputType.BOOLEAN:
+                example_value = 'true'
+            else:  # NUMBER
+                example_value = '42'
+            json_example += f'        "{ts.tag}": {example_value},\n'
+        json_example = json_example.rstrip(',\n') + "\n    }\n}"
+        
+        system = f"""You are a classification assistant.
+Analyze the note and extract multiple pieces of information.
+
+You must return a JSON object with the following structure:
+{json_example}
+
+Output format rules:
+{chr(10).join(format_rules)}
+
+Return ONLY valid JSON, no explanation, no markdown code blocks."""
+        
+        user = f"""{task.prompt}
+
+=== NOTE ===
+{note_content}
+=== END ===
+
+Extract the following information:
+{chr(10).join(tag_descriptions)}"""
+        
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user}
+        ]
+    
+    def _store_result_multi(
+        self, 
+        note_path: Path, 
+        tag_schema: TagSchema, 
+        result: Any, 
+        store_timestamp: bool = False
+    ):
+        """Store result for a single tag from multi-tag task"""
+        self._add_metadata(note_path, tag_schema.tag, result)
+        
+        if store_timestamp:
+            timestamp = datetime.now().isoformat()
+            self._add_metadata(note_path, f"{tag_schema.tag}_at", timestamp)
     
     async def classify_folder(
         self,
