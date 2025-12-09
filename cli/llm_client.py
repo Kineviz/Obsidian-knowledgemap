@@ -154,6 +154,21 @@ EXAMPLE OUTPUT:
         model_lower = model.lower()
         return any(qwen in model_lower for qwen in ['qwen3', 'qwen-3'])
     
+    def _get_context_window(self, model: str) -> int:
+        """Get context window size for a model"""
+        model_lower = model.lower()
+        
+        # Qwen3 models support 32,768 tokens natively (can be extended to 131,072)
+        if 'qwen3' in model_lower or 'qwen-3' in model_lower:
+            # Check if extended context is configured
+            extended_ctx = self.config_loader.get('llm.ollama.qwen3_extended_context', False)
+            if extended_ctx:
+                return 131072  # Extended with YaRN
+            return 32768  # Native context window
+        
+        # Default for other models
+        return self.config_loader.get('llm.ollama.context_window', 8192)
+    
     def _initialize(self):
         """Initialize the LLM client based on configuration"""
         if self.provider == LLMProvider.CLOUD:
@@ -425,7 +440,9 @@ EXAMPLE OUTPUT:
             server.total_requests += 1
             
             model = self.config_loader.get('llm.ollama.model', 'gemma3:12b')
-            timeout = self.config_loader.get('llm.ollama.timeout', 60)
+            # Allow timeout to be overridden via kwargs (useful for classification tasks)
+            # Remove timeout from kwargs to avoid passing it to the payload
+            timeout = kwargs.pop('timeout', None) or self.config_loader.get('llm.ollama.timeout', 60)
             
             # Check if this is a Qwen3 model - use chat API with special handling
             if self._is_qwen3_model(model):
@@ -525,14 +542,28 @@ EXAMPLE OUTPUT:
             # Build messages for Qwen3 - use original system prompt + JSON enforcement
             qwen_messages = []
             
+            # Suppress thinking for classification tasks (multi-tag tasks need JSON output)
+            suppress_thinking = skip_json_suffix  # Classification tasks should suppress thinking
+            
             for msg in messages:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
                 
                 if role == "system":
-                    # For classification tasks, don't append relationship extraction suffix
+                    # For classification tasks, add explicit instruction to suppress thinking
                     if skip_json_suffix:
-                        qwen_messages.append({"role": "system", "content": content})
+                        # Add STRONG instruction to suppress thinking and output only JSON
+                        # Qwen3 models have a "thinking" mode that can consume all tokens
+                        thinking_suppression = """
+
+CRITICAL OUTPUT RULES:
+- DO NOT output any thinking, reasoning, or chain-of-thought
+- DO NOT use the thinking field
+- Output ONLY the JSON object, nothing else
+- No explanations, no comments, no markdown code blocks
+- Start directly with { and end with }
+- If you need to think, do it silently - only output the final JSON"""
+                        qwen_messages.append({"role": "system", "content": content + thinking_suppression})
                     else:
                         # Append Qwen3 JSON enforcement to the original system prompt
                         qwen_messages.append({
@@ -546,13 +577,19 @@ EXAMPLE OUTPUT:
             
             # Note: format:json works well for qwen3:8b but causes issues with qwen3:14b
             # For 14b models, we skip format:json and parse the response manually
-            # Also skip format:json for classification tasks that don't need JSON output
+            # For classification tasks: multi-tag tasks NEED JSON format to suppress thinking
+            # Single-tag tasks don't need JSON format (they return simple text/list/boolean/number)
+            needs_json_format = kwargs.get("needs_json_format", False)
+            
             use_json_format = (
-                not skip_json_suffix and  # Classification tasks don't need JSON format
+                (not skip_json_suffix or needs_json_format) and  # Multi-tag tasks need JSON format
                 "14b" not in model.lower() and 
                 "32b" not in model.lower() and 
                 "72b" not in model.lower()
             )
+            
+            # Get context window for this model
+            context_window = self._get_context_window(model)
             
             payload = {
                 "model": model,
@@ -562,9 +599,18 @@ EXAMPLE OUTPUT:
                     "temperature": 0,  # Deterministic for structured output
                     "top_p": 1,
                     "num_predict": kwargs.get("max_tokens", 4000),
-                    "num_ctx": 8192
+                    "num_ctx": context_window,
+                    # Suppress thinking output for classification tasks (Qwen3 supports this)
+                    "no_think": True if suppress_thinking else None
                 }
             }
+            
+            # Remove None values from options
+            payload["options"] = {k: v for k, v in payload["options"].items() if v is not None}
+            
+            # Add format:json if needed (this also helps suppress thinking mode in Qwen3)
+            if use_json_format:
+                payload["format"] = "json"
             
             if use_json_format:
                 payload["format"] = "json"  # Force JSON output - works for smaller Qwen3 models
@@ -577,9 +623,56 @@ EXAMPLE OUTPUT:
                 async with session.post(f"{server.url}/api/chat", json=payload) as response:
                     if response.status == 200:
                         data = await response.json()
-                        content = data.get("message", {}).get("content", "")
+                        message = data.get("message", {})
+                        
+                        # Extract content - check both 'content' and 'thinking' fields
+                        content = message.get("content", "")
+                        thinking = message.get("thinking", "")
+                        
+                        # If content is empty but thinking exists, the model put everything in thinking
+                        # This happens when thinking output isn't properly suppressed
+                        if not content and thinking:
+                            logger.warning(f"[{server_name}] Content empty but thinking field has {len(thinking)} chars")
+                            logger.warning(f"[{server_name}] Done reason: {data.get('done_reason')}, Eval count: {data.get('eval_count')}")
+                            # Try to extract JSON from thinking (it might be at the end)
+                            # Look for JSON object in thinking
+                            json_start = thinking.rfind("{")
+                            json_end = thinking.rfind("}") + 1
+                            if json_start != -1 and json_end > json_start:
+                                content = thinking[json_start:json_end]
+                                logger.info(f"[{server_name}] Extracted JSON from thinking field ({len(content)} chars)")
+                            else:
+                                # No JSON found - model hit token limit before outputting
+                                error_msg = f"Model hit token limit ({data.get('eval_count')} tokens) - all output went to thinking field"
+                                logger.error(f"[{server_name}] {error_msg}")
+                                logger.error(f"[{server_name}] Thinking preview: {thinking[:500]}...")
+                                return LLMResponse(
+                                    content="",
+                                    model=model,
+                                    provider="ollama",
+                                    server_url=server.url,
+                                    response_time=time.time() - start_time,
+                                    success=False,
+                                    error=error_msg
+                                )
+                        
                         response_time = time.time() - start_time
                         server.response_time = response_time
+                        
+                        # If content is still empty, return error
+                        if not content:
+                            error_msg = data.get("error") or "Empty content in response"
+                            logger.error(f"[{server_name}] Empty response: {error_msg}")
+                            logger.error(f"[{server_name}] Response data keys: {list(data.keys())}")
+                            return LLMResponse(
+                                content="",
+                                model=model,
+                                provider="ollama",
+                                server_url=server.url,
+                                response_time=response_time,
+                                success=False,
+                                error=error_msg
+                            )
                         
                         # Handle Qwen3 thinking models (14b, 32b, 72b) - extract JSON after </think>
                         if "</think>" in content:

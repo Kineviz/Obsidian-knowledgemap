@@ -128,10 +128,11 @@ class Classifier:
         if str(cli_path) not in sys.path:
             sys.path.insert(0, str(cli_path))
         
-        from metadata_manager import parse_frontmatter, add_metadata, get_metadata
+        from metadata_manager import parse_frontmatter, add_metadata, get_metadata, construct_file_content
         self._parse_frontmatter = parse_frontmatter
         self._add_metadata = add_metadata
         self._get_metadata = get_metadata
+        self._construct_file_content = construct_file_content
     
     def _get_llm_client(self):
         """Lazy-load LLM client"""
@@ -157,7 +158,8 @@ class Classifier:
         metadata = self._get_metadata(note_path)
         if metadata is None:
             return False
-        return task_tag in metadata
+        # Check if tag exists in metadata (even if metadata dict is empty)
+        return task_tag in metadata if isinstance(metadata, dict) else False
     
     def _read_note_content(self, note_path: Path) -> str:
         """Read note content (excluding frontmatter)"""
@@ -313,12 +315,29 @@ Return ONLY the result, no explanation, no quotes around the result."""
             # Get LLM response
             llm = self._get_llm_client()
             
+            # Log which note is being dispatched
+            console.print(f"[cyan]📤 Processing: {relative_path}[/cyan]")
+            
             # Use skip_relationship_suffix=True to prevent relationship extraction prompt from being appended
-            response = await llm.generate(messages, skip_relationship_suffix=True)
+            # Increase timeout for classification tasks (they can take longer)
+            response = await llm.generate(messages, skip_relationship_suffix=True, timeout=180)  # 3 minutes for single-tag tasks
             
             if not response.success:
-                self.task_db.record_run_failed(run_id, response.error or "LLM request failed")
-                return False, None, response.error or "LLM request failed"
+                error_msg = response.error or "LLM request failed"
+                self.task_db.record_run_failed(run_id, error_msg)
+                console.print(f"[red]✗ Failed: {relative_path}[/red]")
+                console.print(f"[red]   Error: {error_msg}[/red]")
+                console.print(f"[red]   Response details:[/red]")
+                console.print(f"[red]     - Success: {response.success}[/red]")
+                console.print(f"[red]     - Model: {response.model}[/red]")
+                console.print(f"[red]     - Provider: {response.provider}[/red]")
+                if response.server_url:
+                    console.print(f"[red]     - Server: {response.server_url}[/red]")
+                if response.error:
+                    console.print(f"[red]     - LLM Error: {response.error}[/red]")
+                if hasattr(response, 'content') and response.content:
+                    console.print(f"[red]     - Response content: {response.content[:500]}...[/red]")
+                return False, None, error_msg
             
             # Parse result
             result = self._parse_result(response.content, task.output_type)
@@ -339,9 +358,13 @@ Return ONLY the result, no explanation, no quotes around the result."""
             return True, result, None
             
         except Exception as e:
-            self.task_db.record_run_failed(run_id, str(e))
-            console.print(f"[red]✗ Failed: {relative_path} - {e}[/red]")
-            return False, None, str(e)
+            error_msg = str(e)
+            self.task_db.record_run_failed(run_id, error_msg)
+            console.print(f"[red]✗ Failed: {relative_path}[/red]")
+            console.print(f"[red]   Error: {error_msg}[/red]")
+            import traceback
+            console.print(f"[red]   Traceback: {traceback.format_exc()[:300]}...[/red]")
+            return False, None, error_msg
     
     async def _classify_note_multi(
         self,
@@ -363,14 +386,24 @@ Return ONLY the result, no explanation, no quotes around the result."""
         # Check if already classified (all tags present)
         if not force:
             metadata = self._get_metadata(full_path)
-            if metadata:
-                all_tags_present = all(
-                    tag_schema.tag in metadata 
-                    for tag_schema in task.tag_schema
-                )
-                if all_tags_present:
-                    console.print(f"[dim]Skipping (already classified): {relative_path}[/dim]")
+            if metadata is not None:
+                # Check which tags are present/missing
+                expected_tags = [tag_schema.tag for tag_schema in task.tag_schema]
+                missing_tags = [tag for tag in expected_tags if tag not in metadata]
+                present_tags = [tag for tag in expected_tags if tag in metadata]
+                
+                if not missing_tags:
+                    console.print(f"[green]✓[/green] [dim]Skipping (already classified): {relative_path}[/dim]")
                     return True, None, "already_classified"
+                
+                # Debug: show which tags are missing (only if some tags are present)
+                if present_tags:
+                    console.print(f"[yellow]⚠ Note partially classified: {relative_path}[/yellow]")
+                    console.print(f"[yellow]   Present: {', '.join(present_tags)}[/yellow]")
+                    console.print(f"[yellow]   Missing: {', '.join(missing_tags)}[/yellow]")
+            # else: No metadata found - this is normal for unclassified notes
+        else:
+            console.print(f"[yellow]Force mode: re-classifying {relative_path}[/yellow]")
         
         if dry_run:
             console.print(f"[cyan]Would classify: {relative_path}[/cyan]")
@@ -390,23 +423,114 @@ Return ONLY the result, no explanation, no quotes around the result."""
             # Build prompt
             messages = self._build_multi_tag_prompt(task, note_content)
             
-            # Get LLM response
+            # Calculate prompt size (rough estimate: 1 token ≈ 4 characters)
+            total_chars = sum(len(msg.get("content", "")) for msg in messages)
+            estimated_tokens = total_chars // 4
+            
+            # Get actual context window from LLM client
             llm = self._get_llm_client()
+            if hasattr(llm, '_get_context_window'):
+                # Get model name from task or config
+                from config_loader import get_config_loader
+                config = get_config_loader()
+                model = task.model or config.get('llm.ollama.model', 'qwen3:8b')
+                context_limit = llm._get_context_window(model)
+            else:
+                # Fallback: Qwen3 models support 32,768 tokens natively
+                context_limit = 32768
+            
+            # Warn if note is very large
+            if estimated_tokens > context_limit * 0.8:  # Warn if > 80% of context
+                console.print(f"[yellow]⚠ Warning: Large note detected ({estimated_tokens} estimated tokens, {context_limit:,} limit)[/yellow]")
+                console.print(f"[yellow]   Note content: {len(note_content)} chars[/yellow]")
+                console.print(f"[yellow]   Total prompt: {total_chars} chars[/yellow]")
+            
+            # Log which note is being dispatched
+            console.print(f"[cyan]📤 Processing: {relative_path}[/cyan]")
+            if estimated_tokens > context_limit * 0.9:  # Very close to limit
+                console.print(f"[yellow]   ⚠ Large note: {estimated_tokens:,}/{context_limit:,} tokens (may cause issues)[/yellow]")
             
             # Use skip_relationship_suffix=True to prevent relationship extraction prompt from being appended
-            response = await llm.generate(messages, skip_relationship_suffix=True)
+            # Increase max_tokens for multi-tag tasks (they need more output tokens, default is 4000)
+            # Increase timeout for multi-tag tasks (they take longer to process, default is 60-120s)
+            # Enable JSON format for multi-tag tasks to suppress thinking mode
+            response = await llm.generate(
+                messages, 
+                skip_relationship_suffix=True, 
+                max_tokens=8000,
+                timeout=300,  # 5 minutes for complex multi-tag classification
+                needs_json_format=True  # Multi-tag tasks need JSON format to suppress thinking
+            )
             
             if not response.success:
-                self.task_db.record_run_failed(run_id, response.error or "LLM request failed")
-                return False, None, response.error or "LLM request failed"
+                error_msg = response.error or "LLM request failed"
+                self.task_db.record_run_failed(run_id, error_msg)
+                console.print(f"[red]✗ Failed: {relative_path}[/red]")
+                console.print(f"[red]   Error: {error_msg}[/red]")
+                console.print(f"[red]   Response details:[/red]")
+                console.print(f"[red]     - Success: {response.success}[/red]")
+                console.print(f"[red]     - Model: {response.model}[/red]")
+                console.print(f"[red]     - Provider: {response.provider}[/red]")
+                if response.server_url:
+                    console.print(f"[red]     - Server: {response.server_url}[/red]")
+                if response.error:
+                    console.print(f"[red]     - LLM Error: {response.error}[/red]")
+                if hasattr(response, 'content') and response.content:
+                    console.print(f"[red]     - Response content: {response.content[:500]}...[/red]")
+                return False, None, error_msg
+            
+            # Check if response content is empty
+            if not response.content or not response.content.strip():
+                error_msg = "Empty response from LLM"
+                self.task_db.record_run_failed(run_id, error_msg)
+                console.print(f"[red]✗ Failed: {relative_path}[/red]")
+                console.print(f"[red]   Error: {error_msg}[/red]")
+                console.print(f"[red]   Response details:[/red]")
+                console.print(f"[red]     - Success: {response.success}[/red]")
+                console.print(f"[red]     - Model: {response.model}[/red]")
+                console.print(f"[red]     - Provider: {response.provider}[/red]")
+                if response.server_url:
+                    console.print(f"[red]     - Server: {response.server_url}[/red]")
+                if response.error:
+                    console.print(f"[red]     - LLM Error: {response.error}[/red]")
+                console.print(f"[red]     - Content length: {len(response.content) if response.content else 0} chars[/red]")
+                console.print(f"[red]     - Content value: {repr(response.content) if response.content else 'None'}[/red]")
+                
+                # Check if note might be too large
+                note_chars = len(note_content)
+                estimated_tokens = note_chars // 4
+                # Get actual context limit
+                llm = self._get_llm_client()
+                if hasattr(llm, '_get_context_window'):
+                    model = task.model or llm.config_loader.get('llm.ollama.model', 'qwen3:8b')
+                    context_limit = llm._get_context_window(model)
+                else:
+                    context_limit = 32768  # Default for Qwen3
+                
+                if estimated_tokens > context_limit * 0.75:  # Roughly 75% of context
+                    console.print(f"[yellow]   ⚠ Possible cause: Note is very large ({note_chars} chars ≈ {estimated_tokens} tokens)[/yellow]")
+                    console.print(f"[yellow]   ⚠ Context window: {context_limit:,} tokens. Large notes may cause empty responses.[/yellow]")
+                
+                return False, None, error_msg
             
             # Parse JSON response
+            # First check if response is empty
+            if not response.content or not response.content.strip():
+                error_msg = "Empty response from LLM"
+                self.task_db.record_run_failed(run_id, error_msg)
+                console.print(f"[red]✗ Failed: {relative_path}[/red]")
+                console.print(f"[red]   Error: {error_msg}[/red]")
+                console.print(f"[red]   Response was empty or whitespace only[/red]")
+                return False, None, error_msg
+            
             try:
                 parsed = json.loads(response.content)
                 results = parsed.get('results', {})
             except json.JSONDecodeError as e:
                 # Try to extract JSON from markdown code blocks
                 content = response.content.strip()
+                original_content = content
+                
                 if '```json' in content:
                     json_start = content.find('```json') + 7
                     json_end = content.find('```', json_start)
@@ -421,9 +545,17 @@ Return ONLY the result, no explanation, no quotes around the result."""
                 try:
                     parsed = json.loads(content)
                     results = parsed.get('results', {})
-                except json.JSONDecodeError:
-                    self.task_db.record_run_failed(run_id, f"Invalid JSON response: {e}")
-                    return False, None, f"Invalid JSON response: {e}"
+                except json.JSONDecodeError as e2:
+                    error_msg = f"Invalid JSON response: {e}"
+                    self.task_db.record_run_failed(run_id, error_msg)
+                    console.print(f"[red]✗ Failed: {relative_path}[/red]")
+                    console.print(f"[red]   Error: {error_msg}[/red]")
+                    console.print(f"[red]   Response length: {len(response.content)} chars[/red]")
+                    console.print(f"[red]   Response content (first 1000 chars):[/red]")
+                    console.print(f"[red]{response.content[:1000]}[/red]")
+                    if len(response.content) > 1000:
+                        console.print(f"[red]   ... (truncated, total {len(response.content)} chars)[/red]")
+                    return False, None, error_msg
             
             # Validate all expected tags are present
             missing_tags = [
@@ -431,11 +563,13 @@ Return ONLY the result, no explanation, no quotes around the result."""
                 if ts.tag not in results
             ]
             if missing_tags:
-                self.task_db.record_run_failed(
-                    run_id, 
-                    f"Missing tags in response: {', '.join(missing_tags)}"
-                )
-                return False, None, f"Missing tags in response: {', '.join(missing_tags)}"
+                error_msg = f"Missing tags in response: {', '.join(missing_tags)}"
+                self.task_db.record_run_failed(run_id, error_msg)
+                console.print(f"[red]✗ Failed: {relative_path}[/red]")
+                console.print(f"[red]   Error: {error_msg}[/red]")
+                console.print(f"[red]   Response keys: {list(results.keys())}[/red]")
+                console.print(f"[red]   Expected tags: {[ts.tag for ts in task.tag_schema]}[/red]")
+                return False, None, error_msg
             
             # Parse and validate each result
             parsed_results = {}
@@ -444,10 +578,8 @@ Return ONLY the result, no explanation, no quotes around the result."""
                 parsed_value = self._parse_result(str(raw_value), tag_schema.output_type)
                 parsed_results[tag_schema.tag] = parsed_value
             
-            # Store all tags in frontmatter
-            for tag_schema in task.tag_schema:
-                value = parsed_results[tag_schema.tag]
-                self._store_result_multi(full_path, tag_schema, value, store_timestamp=store_timestamp)
+            # Store all tags in frontmatter (batch update - single read/write)
+            self._store_results_multi_batch(full_path, task.tag_schema, parsed_results, store_timestamp=store_timestamp)
             
             # Record success (store JSON of all results)
             processing_time_ms = int((time.time() - start_time) * 1000)
@@ -463,9 +595,13 @@ Return ONLY the result, no explanation, no quotes around the result."""
             return True, parsed_results, None
             
         except Exception as e:
-            self.task_db.record_run_failed(run_id, str(e))
-            console.print(f"[red]✗ Failed: {relative_path} - {e}[/red]")
-            return False, None, str(e)
+            error_msg = str(e)
+            self.task_db.record_run_failed(run_id, error_msg)
+            console.print(f"[red]✗ Failed: {relative_path}[/red]")
+            console.print(f"[red]   Error: {error_msg}[/red]")
+            import traceback
+            console.print(f"[red]   Traceback: {traceback.format_exc()[:300]}...[/red]")
+            return False, None, error_msg
     
     def _build_multi_tag_prompt(self, task: TaskDefinition, note_content: str) -> List[Dict[str, str]]:
         """Build prompt for multi-tag classification"""
@@ -541,6 +677,37 @@ Extract the following information:
             timestamp = datetime.now().isoformat()
             self._add_metadata(note_path, f"{tag_schema.tag}_at", timestamp)
     
+    def _store_results_multi_batch(
+        self,
+        note_path: Path,
+        tag_schemas: List[TagSchema],
+        parsed_results: Dict[str, Any],
+        store_timestamp: bool = False
+    ):
+        """Store all results from multi-tag task in a single file read/write operation"""
+        try:
+            # Read file once
+            content = note_path.read_text(encoding='utf-8')
+            frontmatter, content_body = self._parse_frontmatter(content)
+            
+            # Update all tags at once
+            for tag_schema in tag_schemas:
+                value = parsed_results[tag_schema.tag]
+                frontmatter[tag_schema.tag] = value
+                
+                if store_timestamp:
+                    timestamp = datetime.now().isoformat()
+                    frontmatter[f"{tag_schema.tag}_at"] = timestamp
+            
+            # Write file once
+            new_content = self._construct_file_content(frontmatter, content_body)
+            note_path.write_text(new_content, encoding='utf-8')
+            
+        except Exception as e:
+            console.print(f"[red]Error storing multi-tag results to {note_path.name}: {e}[/red]")
+            raise
+    
+    
     async def classify_folder(
         self,
         task_tag: str, 
@@ -587,34 +754,67 @@ Extract the following information:
         
         console.print(f"\n[bold]Task: {task.get_display_name()} ({task_tag})[/bold]")
         console.print(f"[cyan]Found {len(md_files)} notes in {folder_path}[/cyan]")
-        if force:
+        
+        # Pre-scan to count notes that need processing
+        if not force:
+            notes_to_process = 0
+            notes_already_classified = 0
+            for md_file in md_files:
+                relative_path = str(md_file.relative_to(self.vault_path))
+                if task.task_type == TaskType.MULTI and task.tag_schema:
+                    # Check if all tags are present
+                    metadata = self._get_metadata(md_file)
+                    if metadata is not None:
+                        missing_tags = [
+                            ts.tag for ts in task.tag_schema 
+                            if ts.tag not in metadata
+                        ]
+                        if not missing_tags:
+                            notes_already_classified += 1
+                            continue
+                else:
+                    # Single-tag task
+                    if self.is_classified(md_file, task.tag):
+                        notes_already_classified += 1
+                        continue
+                notes_to_process += 1
+            console.print(f"[green]Notes to process: {notes_to_process}[/green] (skipping {notes_already_classified} already classified)")
+        else:
             console.print("[yellow]Force mode: will re-classify all notes[/yellow]")
+            notes_to_process = len(md_files)
+        
         if dry_run:
             console.print("[yellow]Dry run mode: no changes will be made[/yellow]")
         console.print()
         
         stats = {'total': len(md_files), 'classified': 0, 'skipped': 0, 'failed': 0}
+        failed_notes = []  # Track failed notes with error messages
         
+        processed_count = 0
         for i, md_file in enumerate(md_files, 1):
             relative_path = str(md_file.relative_to(self.vault_path))
-            console.print(f"[dim][{i}/{len(md_files)}][/dim] ", end="")
-            
-            # Report progress
-            if progress_callback:
-                progress_callback(task_tag, i, len(md_files), relative_path)
             
             success, result, error = await self.classify_note(
                 task_tag, relative_path, force=force, dry_run=dry_run, store_timestamp=store_timestamp
             )
             
+            # Report progress AFTER classification (so skip messages appear first)
+            if progress_callback:
+                progress_callback(task_tag, i, len(md_files), relative_path)
+            
             if error == "already_classified":
                 stats['skipped'] += 1
+                # Skip message already printed by classify_note
             elif error == "dry_run":
                 stats['classified'] += 1  # Would be classified
+                processed_count += 1
             elif success:
                 stats['classified'] += 1
+                processed_count += 1
             else:
                 stats['failed'] += 1
+                processed_count += 1
+                failed_notes.append((relative_path, error))
         
         # Print summary
         console.print(f"\n[bold]Summary:[/bold]")
@@ -623,6 +823,10 @@ Extract the following information:
         console.print(f"  [dim]Skipped: {stats['skipped']}[/dim]")
         if stats['failed'] > 0:
             console.print(f"  [red]Failed: {stats['failed']}[/red]")
+            console.print(f"\n[bold][red]Failed Notes:[/red][/bold]")
+            for note_path, error_msg in failed_notes:
+                console.print(f"  [red]✗ {note_path}[/red]")
+                console.print(f"    [dim]Error: {error_msg}[/dim]")
         
         return stats
     
