@@ -351,7 +351,7 @@ class ManualTrigger:
         
         try:
             # Use the standalone build script
-            script_path = Path(__file__).parent / "build_database_standalone.py"
+            script_path = Path(__file__).parent / "scripts" / "utils" / "build_database_standalone.py"
             
             # Run the script in a separate process
             result = subprocess.run([

@@ -76,7 +76,7 @@ print_success "Kuzu server stopped"
 
 # Step 3: Build Kuzu database
 print_status "Step 3: Building Kuzu database..."
-if uv run build_database_standalone.py --vault-path "$VAULT_PATH" --db-path "$VAULT_PATH/.kineviz_graph/database/knowledge_graph.kz"; then
+if uv run scripts/utils/build_database_standalone.py --vault-path "$VAULT_PATH" --db-path "$VAULT_PATH/.kineviz_graph/database/knowledge_graph.kz"; then
     print_success "Database built successfully"
 else
     print_error "Database build failed"
