@@ -8,8 +8,12 @@ import sys
 import argparse
 from pathlib import Path
 
-# Add the current directory to the path so we can import our modules
-sys.path.append(str(Path(__file__).parent))
+# Add the cli directory (parent of scripts/utils) to the path so we can import our modules
+# File is at: cli/scripts/utils/build_database_standalone.py
+# Need to import from: cli/step3_build.py, cli/step3b_postprocess.py
+cli_dir = Path(__file__).parent.parent.parent
+if str(cli_dir) not in sys.path:
+    sys.path.insert(0, str(cli_dir))
 
 from step3_build import Step3Builder
 from step3b_postprocess import Step3bPostProcessor
