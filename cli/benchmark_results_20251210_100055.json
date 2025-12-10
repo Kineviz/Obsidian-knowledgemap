@@ -1,0 +1,134 @@
+{
+  "test_file": "/Users/weidongyang/Documents/Obsidian_root/VC/VC/Companies/VC/Eniac Ventures.md",
+  "test_file_size": 7790,
+  "timestamp": "2025-12-10T10:00:55.205413",
+  "results": [
+    {
+      "model": "qwen3:8b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": true,
+      "response_time": 31.45841407775879,
+      "token_count": 266,
+      "error": null,
+      "result": {
+        "relationships_count": 7,
+        "relationships": [
+          {
+            "source_category": "Person",
+            "source_label": "Tim Young",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Hadley Harris",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Nihal Mehta",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Vic Singh",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Kristin McDonald",
+            "relationship": "works_at",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          }
+        ]
+      },
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:8b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0.01697087287902832,
+      "token_count": null,
+      "error": "'TaskDatabase' object has no attribute 'generate'",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:14b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 99.92717719078064,
+      "token_count": null,
+      "error": "JSON parse error: Unterminated string starting at: line 19 column 51 (char 2565)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:14b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0.013071060180664062,
+      "token_count": null,
+      "error": "'TaskDatabase' object has no attribute 'generate'",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "llama3.1:8b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 23.0193350315094,
+      "token_count": null,
+      "error": "JSON parse error: Expecting value: line 1 column 1 (char 0)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "llama3.1:8b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0.013349056243896484,
+      "token_count": null,
+      "error": "'TaskDatabase' object has no attribute 'generate'",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 7.612637042999268,
+      "token_count": null,
+      "error": "JSON parse error: Expecting value: line 1 column 1 (char 0)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0.011640787124633789,
+      "token_count": null,
+      "error": "'TaskDatabase' object has no attribute 'generate'",
+      "result": null,
+      "accuracy_score": null
+    }
+  ]
+}

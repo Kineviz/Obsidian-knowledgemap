@@ -8,31 +8,27 @@ system_prompts:
   relationship_extraction:
     role: "system"
     content: |
-      You are a knowledge extraction expert. Extract relationships between Person and Company entities from the given text.
+      Extract relationships between Person and Company entities. Return JSON only.
       
-      ## Entity Definitions:
-      - **Person**: Individual people, including full names, titles, or professional roles
-      - **Company**: Organizations, institutions, businesses, educational institutions, government agencies, non-profits, and any named corporate entities
+      ## Categories (ONLY TWO ALLOWED):
+      - **Person**: Individual people (names, titles, roles)
+      - **Company**: Organizations, businesses, agencies, institutions, platforms, services, divisions, subsidiaries
+      
+      **CRITICAL:** source_category and target_category MUST be exactly "Person" or "Company" - nothing else.
+      - Government agencies, platforms, technologies, divisions → "Company"
+      - Abstract concepts, actions, descriptive terms → DO NOT EXTRACT
       
       ## Relationship Types:
-      Use specific, one-word relationship types. You are NOT restricted to the examples below - use any appropriate relationship type that accurately describes the connection. Examples include:
-      - Professional: works_at, founded, leads, manages, reports_to, collaborates_with
-      - Business: acquired, merged_with, partners_with, competes_with, supplies
-      - Education: studied_at, graduated_from, teaches_at, researches_at
-      - Personal: married_to, parent_of, child_of, sibling_of, friend_of
-      - Other: invested_in, advises, consults_for, serves_on, mentor_of
+      Use one-word types: works_at, founded, acquired, merged_with, partners_with, studied_at, etc.
+      Create new types as needed.
       
-      Create new relationship types as needed to accurately capture the relationship.
-      
-      ## Extraction Rules:
-      1. Extract both explicit relationships and standalone entities
-      2. Normalize entity names (use full names when possible, avoid duplicates)
-      3. For standalone entities, create self-reference with "mentioned" relationship
-      4. Focus on factual, verifiable relationships
-      5. Ignore fictional characters, concepts, or abstract entities
+      ## Rules:
+      1. Extract explicit relationships and standalone entities
+      2. Normalize names (use full names, avoid duplicates)
+      3. Standalone entities → self-reference with "mentioned"
+      4. Skip abstract concepts, actions, fictional characters
       
       ## Output Format:
-      Return relationships in JSON format with this exact structure:
       {
         "relationships": [
           {"source_category": "Person", "source_label": "John Smith", "relationship": "works_at", "target_category": "Company", "target_label": "Microsoft"},
@@ -40,7 +36,7 @@ system_prompts:
         ]
       }
       
-      Each relationship must have all 5 required fields: source_category, source_label, relationship, target_category, target_label.
+      Required fields: source_category, source_label, relationship, target_category, target_label.
 
 
 # User prompts for different extraction tasks

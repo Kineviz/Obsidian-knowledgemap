@@ -150,6 +150,7 @@ Return a JSON object with a "results" key containing all the extracted informati
     )
     
     created_count = 0
+    created_count = 0
     skipped_count = 0
     error_count = 0
     

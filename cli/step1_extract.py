@@ -234,6 +234,21 @@ class Step1Extractor:
             try:
                 result = RelationshipResponse.model_validate_json(cleaned_json)
                 relationships = result.relationships
+                
+                # Filter out relationships with invalid categories (only Person and Company allowed)
+                valid_relationships = []
+                invalid_count = 0
+                for rel in relationships:
+                    if rel.source_category in ['Person', 'Company'] and rel.target_category in ['Person', 'Company']:
+                        valid_relationships.append(rel)
+                    else:
+                        invalid_count += 1
+                        console.print(f"[yellow]⚠ Filtered invalid category: {rel.source_category} -> {rel.target_category} ({rel.source_label} -> {rel.target_label})[/yellow]")
+                
+                if invalid_count > 0:
+                    console.print(f"[yellow]Filtered {invalid_count} relationships with invalid categories (only Person/Company allowed)[/yellow]")
+                
+                relationships = valid_relationships
             except Exception as validation_error:
                 # Try to salvage partial relationships from incomplete responses
                 relationships = self._extract_partial_relationships(cleaned_json)
@@ -244,6 +259,21 @@ class Step1Extractor:
                     console.print(f"[red]Error extracting relationships: {validation_error}[/red]")
                     self._show_problematic_relationship(cleaned_json)
                     return [], server_info
+            
+            # Filter out relationships with invalid categories (only Person and Company allowed)
+            valid_relationships = []
+            invalid_count = 0
+            for rel in relationships:
+                if rel.source_category in ['Person', 'Company'] and rel.target_category in ['Person', 'Company']:
+                    valid_relationships.append(rel)
+                else:
+                    invalid_count += 1
+                    console.print(f"[yellow]⚠ Filtered invalid category: {rel.source_category} -> {rel.target_category} ({rel.source_label} -> {rel.target_label})[/yellow]")
+            
+            if invalid_count > 0:
+                console.print(f"[yellow]Filtered {invalid_count} relationships with invalid categories (only Person/Company allowed)[/yellow]")
+            
+            relationships = valid_relationships
             
             # Add source file info to each relationship (both normal and partial)
             for rel in relationships:
@@ -345,14 +375,23 @@ class Step1Extractor:
         # Remove any leading/trailing whitespace and newlines
         content = content.strip()
         
-        # If content starts with newline or other characters, try to find JSON object
-        if content.startswith('\n') or content.startswith('}'):
-            # Try to find the first { and last }
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1 and end > start:
-                content = content[start:end+1]
+        # Always try to find the JSON object by locating first { and last }
+        # This handles cases where models add explanatory text before or after JSON
+        json_start = content.find('{')
+        json_end = content.rfind('}')
         
+        if json_start != -1 and json_end != -1 and json_end > json_start:
+            # Extract just the JSON object
+            json_content = content[json_start:json_end+1]
+            
+            # Fix common JSON issues: trailing commas before closing brackets/braces
+            # (re is already imported at the top for _show_problematic_relationship)
+            import re
+            json_content = re.sub(r',(\s*[}\]])', r'\1', json_content)
+            
+            return json_content
+        
+        # If no JSON object found, return original (will fail validation but that's expected)
         return content
 
     def _save_relationships_to_csv(self, file_path: Path, relationships: List[Relationship]) -> str:

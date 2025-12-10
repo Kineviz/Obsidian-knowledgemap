@@ -1,0 +1,95 @@
+{
+  "test_file": "/Users/weidongyang/Documents/Obsidian_root/VC/VC/Companies/VC/Eniac Ventures.md",
+  "test_file_size": 7790,
+  "timestamp": "2025-12-10T09:46:44.510143",
+  "results": [
+    {
+      "model": "qwen3:8b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 2.1457672119140625e-06,
+      "token_count": null,
+      "error": "'ConfigLoader' object has no attribute '_config'",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:8b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0,
+      "token_count": null,
+      "error": "VC analysis task (gxr_vc_analysis) not found",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:14b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 1.0967254638671875e-05,
+      "token_count": null,
+      "error": "'ConfigLoader' object has no attribute '_config'",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:14b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0,
+      "token_count": null,
+      "error": "VC analysis task (gxr_vc_analysis) not found",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "llama3.1:8b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 7.152557373046875e-06,
+      "token_count": null,
+      "error": "'ConfigLoader' object has no attribute '_config'",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "llama3.1:8b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0,
+      "token_count": null,
+      "error": "VC analysis task (gxr_vc_analysis) not found",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 6.9141387939453125e-06,
+      "token_count": null,
+      "error": "'ConfigLoader' object has no attribute '_config'",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0,
+      "token_count": null,
+      "error": "VC analysis task (gxr_vc_analysis) not found",
+      "result": null,
+      "accuracy_score": null
+    }
+  ]
+}

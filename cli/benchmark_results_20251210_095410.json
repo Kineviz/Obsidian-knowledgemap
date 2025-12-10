@@ -1,0 +1,134 @@
+{
+  "test_file": "/Users/weidongyang/Documents/Obsidian_root/VC/VC/Companies/VC/Eniac Ventures.md",
+  "test_file_size": 7790,
+  "timestamp": "2025-12-10T09:54:10.441795",
+  "results": [
+    {
+      "model": "qwen3:8b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": true,
+      "response_time": 26.644157886505127,
+      "token_count": 266,
+      "error": null,
+      "result": {
+        "relationships_count": 7,
+        "relationships": [
+          {
+            "source_category": "Person",
+            "source_label": "Tim Young",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Hadley Harris",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Nihal Mehta",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Vic Singh",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Kristin McDonald",
+            "relationship": "works_at",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          }
+        ]
+      },
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:8b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0,
+      "token_count": null,
+      "error": "VC analysis task (gxr_vc_analysis) not found",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:14b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 100.28056025505066,
+      "token_count": null,
+      "error": "JSON parse error: Unterminated string starting at: line 19 column 51 (char 2565)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:14b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0,
+      "token_count": null,
+      "error": "VC analysis task (gxr_vc_analysis) not found",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "llama3.1:8b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 14.575207948684692,
+      "token_count": null,
+      "error": "JSON parse error: Expecting value: line 1 column 1 (char 0)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "llama3.1:8b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0,
+      "token_count": null,
+      "error": "VC analysis task (gxr_vc_analysis) not found",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 6.307883977890015,
+      "token_count": null,
+      "error": "JSON parse error: Expecting value: line 1 column 1 (char 0)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 0,
+      "token_count": null,
+      "error": "VC analysis task (gxr_vc_analysis) not found",
+      "result": null,
+      "accuracy_score": null
+    }
+  ]
+}

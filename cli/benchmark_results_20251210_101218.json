@@ -1,0 +1,152 @@
+{
+  "test_file": "/Users/weidongyang/Documents/Obsidian_root/VC/VC/Companies/VC/Eniac Ventures.md",
+  "test_file_size": 7790,
+  "timestamp": "2025-12-10T10:12:18.193345",
+  "results": [
+    {
+      "model": "qwen3:8b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": true,
+      "response_time": 26.495522022247314,
+      "token_count": 266,
+      "error": null,
+      "result": {
+        "relationships_count": 7,
+        "relationships": [
+          {
+            "source_category": "Person",
+            "source_label": "Tim Young",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Hadley Harris",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Nihal Mehta",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Vic Singh",
+            "relationship": "founded",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          },
+          {
+            "source_category": "Person",
+            "source_label": "Kristin McDonald",
+            "relationship": "works_at",
+            "target_category": "Company",
+            "target_label": "Eniac Ventures"
+          }
+        ]
+      },
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:8b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": false,
+      "response_time": 415.25834488868713,
+      "token_count": null,
+      "error": "All Ollama servers failed after retries",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:14b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 107.36737322807312,
+      "token_count": null,
+      "error": "JSON parse error: Unterminated string starting at: line 19 column 51 (char 2565)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "qwen3:14b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": true,
+      "response_time": 43.00669312477112,
+      "token_count": null,
+      "error": null,
+      "result": {
+        "gxr_vc_investment_stages": "Seed, Series A, Series B",
+        "gxr_vc_sectors": "AI/ML, Deep Tech, Enterprise SaaS, Fintech, Bio/HealthTech, Consumer, Climate, DevTools, Vertical AI",
+        "gxr_vc_check_size": "Small Seed ($250k-$1M)",
+        "gxr_vc_geography": "NYC",
+        "gxr_vc_firm_type": "Technical Partners, Operator-Led Fund"
+      },
+      "accuracy_score": null
+    },
+    {
+      "model": "llama3.1:8b",
+      "provider": "ollama",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 27.843486070632935,
+      "token_count": null,
+      "error": "JSON parse error: Expecting value: line 1 column 1 (char 0)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "llama3.1:8b",
+      "provider": "ollama",
+      "task_type": "vc_classification",
+      "success": true,
+      "response_time": 6.3189661502838135,
+      "token_count": null,
+      "error": null,
+      "result": {
+        "gxr_vc_investment_stages": "Seed, Series A, Series B",
+        "gxr_vc_sectors": "AI/ML, LLMs, DevTools, Cloud/SaaS, Cybersecurity, Data/Analytics, Bio/HealthTech, Fintech, Climate, Robotics, Consumer, GovTech, Deep Tech, Enterprise SaaS, Vertical AI",
+        "gxr_vc_check_size": "Small Seed ($250k-$1M)",
+        "gxr_vc_geography": "US-National, NYC",
+        "gxr_vc_firm_type": "Operator-Led Fund"
+      },
+      "accuracy_score": null
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "task_type": "knowledge_map",
+      "success": false,
+      "response_time": 11.176386833190918,
+      "token_count": null,
+      "error": "JSON parse error: Expecting value: line 1 column 1 (char 0)",
+      "result": null,
+      "accuracy_score": null
+    },
+    {
+      "model": "gpt-4o-mini",
+      "provider": "openai",
+      "task_type": "vc_classification",
+      "success": true,
+      "response_time": 3.589752197265625,
+      "token_count": null,
+      "error": null,
+      "result": {
+        "gxr_vc_investment_stages": "Seed, Series A, Series B",
+        "gxr_vc_sectors": "AI, Robotics, Deep Tech, Fintech, Healthcare, Consumer, Enterprise",
+        "gxr_vc_check_size": "$200K\u2013$1.2M",
+        "gxr_vc_geography": "NYC",
+        "gxr_vc_firm_type": "Technical Partners, Operator-Led Fund"
+      },
+      "accuracy_score": null
+    }
+  ]
+}
