@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LLM Client with Load Balancing and Failover
-Supports both OpenAI (cloud) and Ollama (local) providers with automatic failover.
+Supports OpenAI (cloud), Google Gemini (cloud), and Ollama (local) providers with automatic failover.
 """
 
 import asyncio
@@ -19,13 +19,22 @@ from dotenv import load_dotenv
 import os
 from config_loader import get_config_loader
 
+# Try to import google.generativeai, but don't fail if not installed
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    genai = None
+
 # Load environment variables
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 class LLMProvider(Enum):
-    CLOUD = "cloud"
+    CLOUD = "cloud"  # OpenAI
+    GEMINI = "gemini"  # Google Gemini
     OLLAMA = "ollama"
 
 class LoadBalanceStrategy(Enum):
@@ -141,6 +150,7 @@ EXAMPLE OUTPUT:
         
         self.provider = LLMProvider(self.config_loader.get('llm.provider', 'cloud'))
         self.openai_client = None
+        self.gemini_client = None
         self.ollama_servers: List[OllamaServer] = []
         self.current_server_index = 0
         self.load_balance_strategy = LoadBalanceStrategy(
@@ -173,6 +183,8 @@ EXAMPLE OUTPUT:
         """Initialize the LLM client based on configuration"""
         if self.provider == LLMProvider.CLOUD:
             self._initialize_openai()
+        elif self.provider == LLMProvider.GEMINI:
+            self._initialize_gemini()
         else:
             self._initialize_ollama()
     
@@ -185,6 +197,20 @@ EXAMPLE OUTPUT:
         self.openai_client = openai.AsyncOpenAI(api_key=api_key)
         model = self.config_loader.get('llm.cloud.openai.model', 'gpt-4o-mini')
         logger.info(f"Initialized OpenAI client with model: {model}")
+    
+    def _initialize_gemini(self):
+        """Initialize Gemini client"""
+        if not GEMINI_AVAILABLE:
+            raise ValueError("google-generativeai package is required. Install it with: uv add google-generativeai")
+        
+        api_key = self.config_loader.get_gemini_api_key()
+        if not api_key:
+            raise ValueError("Gemini API key is required when LLM_PROVIDER=gemini (set GEMINI_API_KEY in .env)")
+        
+        genai.configure(api_key=api_key)
+        self.gemini_client = genai
+        model = self.config_loader.get('llm.gemini.model', 'gemini-2.0-flash-exp')
+        logger.info(f"Initialized Gemini client with model: {model}")
     
     def _initialize_ollama(self):
         """Initialize Ollama servers"""
@@ -336,6 +362,8 @@ EXAMPLE OUTPUT:
         """Generate response using configured LLM provider"""
         if self.provider == LLMProvider.CLOUD:
             return await self._generate_openai(messages, **kwargs)
+        elif self.provider == LLMProvider.GEMINI:
+            return await self._generate_gemini(messages, **kwargs)
         else:
             return await self._generate_ollama(messages, **kwargs)
     
@@ -372,6 +400,85 @@ EXAMPLE OUTPUT:
                 content="",
                 model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                 provider="openai",
+                success=False,
+                error=str(e)
+            )
+    
+    async def _generate_gemini(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """Generate response using Google Gemini"""
+        try:
+            start_time = time.time()
+            model_name = self.config_loader.get('llm.gemini.model', 'gemini-2.0-flash-exp')
+            timeout = self.config_loader.get('llm.gemini.timeout', 60)
+            
+            # Convert messages format for Gemini
+            # Combine system and user messages into a single prompt
+            # Gemini doesn't have a separate system role, so we prepend system messages
+            system_prompt = ""
+            user_prompt = ""
+            
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                
+                if role == "system":
+                    system_prompt += content + "\n\n"
+                elif role == "user":
+                    user_prompt += content + "\n\n"
+                # Note: We ignore assistant messages for now (single-turn generation)
+            
+            # Combine system and user prompts
+            full_prompt = (system_prompt + user_prompt).strip()
+            
+            # Get the model
+            model = self.gemini_client.GenerativeModel(
+                model_name=model_name,
+                generation_config={
+                    "temperature": kwargs.get("temperature", 0.1),
+                    "max_output_tokens": kwargs.get("max_tokens", 2000),
+                }
+            )
+            
+            # Run in thread pool since google-generativeai is synchronous
+            def generate_sync():
+                return model.generate_content(full_prompt)
+            
+            response = await asyncio.wait_for(
+                asyncio.to_thread(generate_sync),
+                timeout=timeout
+            )
+            
+            response_time = time.time() - start_time
+            content = response.text if hasattr(response, 'text') and response.text else str(response)
+            
+            # Try to get token count if available
+            token_count = None
+            if hasattr(response, 'usage_metadata'):
+                token_count = getattr(response.usage_metadata, 'total_token_count', None)
+            
+            return LLMResponse(
+                content=content,
+                model=model_name,
+                provider="gemini",
+                response_time=response_time,
+                token_count=token_count
+            )
+            
+        except asyncio.TimeoutError:
+            logger.error(f"Gemini generation timed out after {timeout}s")
+            return LLMResponse(
+                content="",
+                model=self.config_loader.get('llm.gemini.model', 'gemini-2.0-flash-exp'),
+                provider="gemini",
+                success=False,
+                error=f"Request timed out after {timeout}s"
+            )
+        except Exception as e:
+            logger.error(f"Gemini generation failed: {e}")
+            return LLMResponse(
+                content="",
+                model=self.config_loader.get('llm.gemini.model', 'gemini-2.0-flash-exp'),
+                provider="gemini",
                 success=False,
                 error=str(e)
             )
@@ -779,6 +886,12 @@ CRITICAL OUTPUT RULES:
                 "provider": "openai",
                 "status": "healthy" if self.openai_client else "unavailable",
                 "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+            }
+        elif self.provider == LLMProvider.GEMINI:
+            return {
+                "provider": "gemini",
+                "status": "healthy" if self.gemini_client else "unavailable",
+                "model": self.config_loader.get('llm.gemini.model', 'gemini-2.0-flash-exp')
             }
         else:
             healthy_servers = self._get_healthy_servers()

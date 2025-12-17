@@ -70,6 +70,10 @@ class ConfigLoader:
         """Get OpenAI API key from environment"""
         return os.getenv('OPENAI_API_KEY')
     
+    def get_gemini_api_key(self) -> Optional[str]:
+        """Get Gemini API key from environment"""
+        return os.getenv('GEMINI_API_KEY')
+    
     def get_llm_config(self) -> Dict[str, Any]:
         """Get LLM configuration with API key injection"""
         llm_config = self.get('llm', {})
@@ -111,6 +115,9 @@ class ConfigLoader:
         if self.get('llm.provider') == 'cloud' and not self.get_openai_api_key():
             errors.append("OpenAI API key not found (set OPENAI_API_KEY in .env)")
         
+        if self.get('llm.provider') == 'gemini' and not self.get_gemini_api_key():
+            errors.append("Gemini API key not found (set GEMINI_API_KEY in .env)")
+        
         return errors
     
     def print_config_summary(self):
@@ -121,6 +128,7 @@ class ConfigLoader:
         print(f"  Database Port: {self.get('database.port', 'not set')}")
         print(f"  Server Port: {self.get('server.port', 'not set')}")
         print(f"  OpenAI API Key: {'Set' if self.get_openai_api_key() else 'Not set'}")
+        print(f"  Gemini API Key: {'Set' if self.get_gemini_api_key() else 'Not set'}")
 
 # Global config loader instance
 _config_loader: Optional[ConfigLoader] = None

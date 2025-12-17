@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv",
     "rich",
     "openai",
+    "google-generativeai",
     "pydantic",
     "jsonschema",
     "watchdog",
