@@ -34,10 +34,10 @@ def check_vc_classification():
     # Get the task definition
     db_path = vault_path / ".kineviz_graph" / "classification.db"
     db = TaskDatabase(db_path)
-    task = db.get_task("gxr_vc_analysis")
+    task = db.get_task("_vc_analysis")
     
     if not task:
-        print("Error: Task 'gxr_vc_analysis' not found")
+        print("Error: Task '_vc_analysis' not found")
         sys.exit(1)
     
     if not task.tag_schema:

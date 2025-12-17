@@ -29,14 +29,14 @@ def show_prompt_example():
     
     # Create a sample task
     task = TaskDefinition(
-        tag="gxr_vc_analysis",
+        tag="_vc_analysis",
         task_type=TaskType.MULTI,
         prompt="Analyze this VC profile...",
         output_type=OutputType.TEXT,
         tag_schema=[
-            TagSchema(tag="gxr_vc_investment_stages", output_type=OutputType.LIST, name="Stages"),
-            TagSchema(tag="gxr_vc_sectors", output_type=OutputType.LIST, name="Sectors"),
-            TagSchema(tag="gxr_vc_check_size", output_type=OutputType.TEXT, name="Check Size"),
+            TagSchema(tag="_vc_stages", output_type=OutputType.LIST, name="Stages"),
+            TagSchema(tag="_vc_sectors", output_type=OutputType.LIST, name="Sectors"),
+            TagSchema(tag="_vc_size", output_type=OutputType.TEXT, name="Check Size"),
         ]
     )
     
@@ -56,14 +56,14 @@ def show_prompt_example():
     
     print("\n📝 Key Points:")
     print("1. The JSON example explicitly shows the tag names as keys:")
-    print("   - 'gxr_vc_investment_stages'")
-    print("   - 'gxr_vc_sectors'")
-    print("   - 'gxr_vc_check_size'")
+    print("   - '_vc_stages'")
+    print("   - '_vc_sectors'")
+    print("   - '_vc_size'")
     print("\n2. The LLM is instructed to use these EXACT tag names as JSON keys")
     print("\n3. When parsing, we look up results by tag name:")
-    print("   results['gxr_vc_investment_stages'] → maps to tag_schema[0]")
-    print("   results['gxr_vc_sectors'] → maps to tag_schema[1]")
-    print("   results['gxr_vc_check_size'] → maps to tag_schema[2]")
+    print("   results['_vc_stages'] → maps to tag_schema[0]")
+    print("   results['_vc_sectors'] → maps to tag_schema[1]")
+    print("   results['_vc_size'] → maps to tag_schema[2]")
     print("\n4. The mapping is: tag_schema.tag == JSON key")
 
 if __name__ == "__main__":

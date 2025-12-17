@@ -278,6 +278,199 @@ class Step3Builder:
         
         console.print(f"[green]    ✓ Created {total_created} {relationship_type} edges in {batch_count} batches[/green]")
 
+    def _validate_csv_for_import(self, csv_path: Path, id_column: str = 'id') -> Tuple[bool, int, int]:
+        """
+        Validate CSV file before importing to check for NULL/empty primary keys.
+        
+        Args:
+            csv_path: Path to CSV file
+            id_column: Name of the primary key column (default: 'id')
+            
+        Returns:
+            Tuple of (is_valid, total_rows, invalid_rows)
+        """
+        if not csv_path.exists():
+            return True, 0, 0
+        
+        invalid_rows = 0
+        total_rows = 0
+        
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row_num, row in enumerate(reader, start=2):  # Start at 2 (row 1 is header)
+                    total_rows += 1
+                    id_value = row.get(id_column, '').strip() if row.get(id_column) else ''
+                    if not id_value or id_value.lower() in ['null', 'none', '']:
+                        invalid_rows += 1
+                        if invalid_rows <= 5:  # Show first 5 invalid rows
+                            console.print(f"[yellow]  ⚠ Row {row_num} in {csv_path.name} has empty/NULL {id_column}: {row}[/yellow]")
+        except Exception as e:
+            console.print(f"[red]Error validating {csv_path.name}: {e}[/red]")
+            return False, total_rows, invalid_rows
+        
+        return invalid_rows == 0, total_rows, invalid_rows
+    
+    def _validate_relationship_entities(
+        self, 
+        csv_path: Path, 
+        source_column: str, 
+        target_column: str, 
+        source_entity_ids: Set[str], 
+        source_type: str,
+        target_entity_ids: Optional[Set[str]] = None,
+        target_type: Optional[str] = None
+    ) -> Path:
+        """
+        Validate that all referenced entities in relationship CSV exist.
+        Creates a cleaned CSV file with only valid relationships.
+        
+        Args:
+            csv_path: Path to relationship CSV file
+            source_column: Name of source entity ID column
+            target_column: Name of target entity ID column
+            source_entity_ids: Set of valid source entity IDs
+            source_type: Type of source entity (for logging)
+            target_entity_ids: Set of valid target entity IDs (if different from source)
+            target_type: Type of target entity (for logging)
+            
+        Returns:
+            Path to validated CSV file (or original if all valid)
+        """
+        if not csv_path.exists():
+            return csv_path
+        
+        # Use same set if target type is same as source
+        if target_entity_ids is None:
+            target_entity_ids = source_entity_ids
+        if target_type is None:
+            target_type = source_type
+        
+        validated_path = csv_path.parent / f"{csv_path.stem}_validated{csv_path.suffix}"
+        rows_removed = 0
+        total_rows = 0
+        missing_source = set()
+        missing_target = set()
+        
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as infile, \
+                 open(validated_path, 'w', encoding='utf-8', newline='') as outfile:
+                reader = csv.DictReader(infile)
+                fieldnames = reader.fieldnames
+                if not fieldnames:
+                    return csv_path
+                
+                writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for row in reader:
+                    total_rows += 1
+                    source_id = row.get(source_column, '').strip() if row.get(source_column) else ''
+                    target_id = row.get(target_column, '').strip() if row.get(target_column) else ''
+                    
+                    # Check if both entities exist (case-insensitive comparison for robustness)
+                    source_exists = source_id in source_entity_ids
+                    target_exists = target_id in target_entity_ids
+                    
+                    # If case-sensitive match fails, try case-insensitive
+                    if not source_exists and source_id:
+                        source_exists = any(sid.lower() == source_id.lower() for sid in source_entity_ids)
+                        if source_exists:
+                            # Find the actual ID with correct case
+                            actual_source_id = next(sid for sid in source_entity_ids if sid.lower() == source_id.lower())
+                            if actual_source_id != source_id:
+                                row[source_column] = actual_source_id  # Fix case mismatch
+                    if not target_exists and target_id:
+                        target_exists = any(tid.lower() == target_id.lower() for tid in target_entity_ids)
+                        if target_exists:
+                            # Find the actual ID with correct case
+                            actual_target_id = next(tid for tid in target_entity_ids if tid.lower() == target_id.lower())
+                            if actual_target_id != target_id:
+                                row[target_column] = actual_target_id  # Fix case mismatch
+                    
+                    if source_exists and target_exists:
+                        writer.writerow(row)
+                    else:
+                        rows_removed += 1
+                        if not source_exists:
+                            missing_source.add(source_id)
+                        if not target_exists:
+                            missing_target.add(target_id)
+                        if rows_removed <= 5:  # Show first 5 invalid rows
+                            console.print(f"[yellow]  ⚠ Row {total_rows + 1}: Missing {source_type if not source_exists else ''} '{source_id if not source_exists else ''}' or {target_type if not target_exists else ''} '{target_id if not target_exists else ''}'[/yellow]")
+            
+            if rows_removed > 0:
+                console.print(f"[yellow]  ⚠ Removed {rows_removed} relationship(s) with missing entities from {csv_path.name}[/yellow]")
+                if missing_source:
+                    console.print(f"[yellow]    - Missing {source_type} entities: {len(missing_source)} unique IDs (showing first 5: {list(missing_source)[:5]})[/yellow]")
+                if missing_target:
+                    console.print(f"[yellow]    - Missing {target_type} entities: {len(missing_target)} unique IDs (showing first 5: {list(missing_target)[:5]})[/yellow]")
+                return validated_path
+            else:
+                # No cleaning needed, remove temp file and return original
+                validated_path.unlink()
+                return csv_path
+        except Exception as e:
+            console.print(f"[red]Error validating relationship entities in {csv_path.name}: {e}[/red]")
+            return csv_path
+    
+    def _clean_csv_for_import(self, csv_path: Path, id_column: str = 'id', target_column: Optional[str] = None) -> Path:
+        """
+        Clean CSV file by removing rows with NULL/empty primary keys.
+        Creates a temporary cleaned CSV file.
+        
+        Args:
+            csv_path: Path to original CSV file
+            id_column: Name of the primary key column (default: 'id')
+            target_column: Optional name of target column to also validate (for relationships)
+            
+        Returns:
+            Path to cleaned CSV file (or original if no cleaning needed)
+        """
+        if not csv_path.exists():
+            return csv_path
+        
+        cleaned_path = csv_path.parent / f"{csv_path.stem}_cleaned{csv_path.suffix}"
+        rows_removed = 0
+        total_rows = 0
+        
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as infile, \
+                 open(cleaned_path, 'w', encoding='utf-8', newline='') as outfile:
+                reader = csv.DictReader(infile)
+                fieldnames = reader.fieldnames
+                if not fieldnames:
+                    return csv_path
+                
+                writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for row in reader:
+                    total_rows += 1
+                    id_value = row.get(id_column, '').strip() if row.get(id_column) else ''
+                    is_valid = id_value and id_value.lower() not in ['null', 'none', '']
+                    
+                    # Also check target column if provided (for relationships)
+                    if is_valid and target_column:
+                        target_value = row.get(target_column, '').strip() if row.get(target_column) else ''
+                        is_valid = target_value and target_value.lower() not in ['null', 'none', '']
+                    
+                    if is_valid:
+                        writer.writerow(row)
+                    else:
+                        rows_removed += 1
+            
+            if rows_removed > 0:
+                console.print(f"[yellow]  ⚠ Removed {rows_removed} row(s) with empty/NULL {id_column}{f' or {target_column}' if target_column else ''} from {csv_path.name}[/yellow]")
+                return cleaned_path
+            else:
+                # No cleaning needed, remove temp file and return original
+                cleaned_path.unlink()
+                return csv_path
+        except Exception as e:
+            console.print(f"[red]Error cleaning {csv_path.name}: {e}[/red]")
+            return csv_path
+    
     def _load_entities_from_csv(self, entity_type: str) -> List[dict]:
         """Load entities from CSV file"""
         entities = []
@@ -510,13 +703,23 @@ class Step3Builder:
         person_csv = db_input_dir / "person.csv"
         if person_csv.exists():
             console.print("[cyan]  → Importing Person nodes...[/cyan]")
+            # Validate and clean CSV before importing
+            is_valid, total_rows, invalid_rows = self._validate_csv_for_import(person_csv, 'id')
+            if invalid_rows > 0:
+                console.print(f"[yellow]  ⚠ Found {invalid_rows} row(s) with empty/NULL id in person.csv, cleaning...[/yellow]")
+                person_csv = self._clean_csv_for_import(person_csv, 'id')
+            
             person_start = time.time()
-            self.conn.execute(f'COPY Person FROM "{person_csv}" (HEADER=true)')
-            # Count imported persons
-            result = self.conn.execute("MATCH (p:Person) RETURN count(p) as count")
-            person_count = list(result)[0][0]
-            person_time = time.time() - person_start
-            console.print(f"[green]  ✓ Imported {person_count} Person nodes in {person_time:.2f}s[/green]")
+            try:
+                self.conn.execute(f'COPY Person FROM "{person_csv}" (HEADER=true)')
+                # Count imported persons
+                result = self.conn.execute("MATCH (p:Person) RETURN count(p) as count")
+                person_count = list(result)[0][0]
+                person_time = time.time() - person_start
+                console.print(f"[green]  ✓ Imported {person_count} Person nodes in {person_time:.2f}s[/green]")
+            except Exception as e:
+                console.print(f"[red]  ✗ Error importing Person nodes: {e}[/red]")
+                raise
         else:
             console.print("[yellow]  ⚠ Person CSV not found, skipping...[/yellow]")
         
@@ -524,13 +727,23 @@ class Step3Builder:
         company_csv = db_input_dir / "company.csv"
         if company_csv.exists():
             console.print("[cyan]  → Importing Company nodes...[/cyan]")
+            # Validate and clean CSV before importing
+            is_valid, total_rows, invalid_rows = self._validate_csv_for_import(company_csv, 'id')
+            if invalid_rows > 0:
+                console.print(f"[yellow]  ⚠ Found {invalid_rows} row(s) with empty/NULL id in company.csv, cleaning...[/yellow]")
+                company_csv = self._clean_csv_for_import(company_csv, 'id')
+            
             company_start = time.time()
-            self.conn.execute(f'COPY Company FROM "{company_csv}" (HEADER=true)')
-            # Count imported companies
-            result = self.conn.execute("MATCH (c:Company) RETURN count(c) as count")
-            company_count = list(result)[0][0]
-            company_time = time.time() - company_start
-            console.print(f"[green]  ✓ Imported {company_count} Company nodes in {company_time:.2f}s[/green]")
+            try:
+                self.conn.execute(f'COPY Company FROM "{company_csv}" (HEADER=true)')
+                # Count imported companies
+                result = self.conn.execute("MATCH (c:Company) RETURN count(c) as count")
+                company_count = list(result)[0][0]
+                company_time = time.time() - company_start
+                console.print(f"[green]  ✓ Imported {company_count} Company nodes in {company_time:.2f}s[/green]")
+            except Exception as e:
+                console.print(f"[red]  ✗ Error importing Company nodes: {e}[/red]")
+                raise
         else:
             console.print("[yellow]  ⚠ Company CSV not found, skipping...[/yellow]")
         
@@ -558,17 +771,102 @@ class Step3Builder:
         step_start = time.time()
         console.print("[cyan]Step 5: Importing relationships using COPY FROM...[/cyan]")
         
+        # Get existing entity IDs for validation
+        existing_person_ids = set()
+        existing_company_ids = set()
+        try:
+            result = self.conn.execute("MATCH (p:Person) RETURN p.id as id")
+            existing_person_ids = {row[0] for row in result}
+            result = self.conn.execute("MATCH (c:Company) RETURN c.id as id")
+            existing_company_ids = {row[0] for row in result}
+            console.print(f"[cyan]  → Loaded {len(existing_person_ids)} Person IDs and {len(existing_company_ids)} Company IDs for validation[/cyan]")
+        except Exception as e:
+            console.print(f"[yellow]  ⚠ Could not load entity IDs for validation: {e}[/yellow]")
+        
         # Import Person to Person relationships
         person_to_person_csv = db_input_dir / "person_to_person.csv"
         if person_to_person_csv.exists():
             console.print("[cyan]  → Importing Person-to-Person relationships...[/cyan]")
+            
+            # First, check how many relationships are in the CSV
+            try:
+                with open(person_to_person_csv, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    csv_row_count = sum(1 for _ in reader)
+                console.print(f"[cyan]    CSV contains {csv_row_count} relationship(s)[/cyan]")
+            except Exception as e:
+                console.print(f"[yellow]    Could not count CSV rows: {e}[/yellow]")
+            
+            # Validate and clean CSV
+            is_valid, total_rows, invalid_rows = self._validate_csv_for_import(person_to_person_csv, 'source_id')
+            if invalid_rows > 0:
+                console.print(f"[yellow]  ⚠ Found {invalid_rows} row(s) with empty/NULL source_id in person_to_person.csv, cleaning...[/yellow]")
+                person_to_person_csv = self._clean_csv_for_import(person_to_person_csv, 'source_id', 'target_id')
+            
+            # Validate that referenced entities exist
+            console.print(f"[cyan]    Validating relationships against {len(existing_person_ids)} existing Person entities...[/cyan]")
+            person_to_person_csv = self._validate_relationship_entities(
+                person_to_person_csv, 'source_id', 'target_id', existing_person_ids, 'Person'
+            )
+            
+            # Check how many relationships remain after validation
+            try:
+                with open(person_to_person_csv, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    validated_row_count = sum(1 for _ in reader)
+                console.print(f"[cyan]    {validated_row_count} relationship(s) remain after validation[/cyan]")
+            except Exception as e:
+                console.print(f"[yellow]    Could not count validated rows: {e}[/yellow]")
+            
+            # Verify CSV column order (Kuzu requires first two columns to be FROM and TO node IDs)
+            try:
+                with open(person_to_person_csv, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    headers = reader.fieldnames
+                    if headers:
+                        console.print(f"[cyan]    CSV columns: {headers}[/cyan]")
+                        # Kuzu expects first two columns to be FROM and TO node IDs
+                        if len(headers) < 2:
+                            console.print(f"[red]    ERROR: CSV must have at least 2 columns (FROM and TO node IDs)[/red]")
+                            raise ValueError("Invalid CSV format: insufficient columns")
+                        # Check if first two columns are source/target IDs
+                        if headers[0] not in ['source_id', 'Person.id'] and headers[1] not in ['target_id', 'Person.id']:
+                            console.print(f"[yellow]    WARNING: First two columns should be FROM and TO node IDs[/yellow]")
+                            console.print(f"[yellow]    Expected: source_id, target_id (or Person.id, Person.id)[/yellow]")
+                            console.print(f"[yellow]    Got: {headers[0]}, {headers[1]}[/yellow]")
+            except Exception as e:
+                console.print(f"[yellow]    Could not verify CSV format: {e}[/yellow]")
+            
             p2p_start = time.time()
-            self.conn.execute(f'COPY PERSON_TO_PERSON FROM "{person_to_person_csv}" (HEADER=true)')
-            # Count imported relationships
-            result = self.conn.execute("MATCH ()-[r:PERSON_TO_PERSON]->() RETURN count(r) as count")
-            rel_count = list(result)[0][0]
-            p2p_time = time.time() - p2p_start
-            console.print(f"[green]  ✓ Imported {rel_count} Person-to-Person relationships in {p2p_time:.2f}s[/green]")
+            try:
+                # Kuzu COPY FROM for relationships: first two columns must be FROM and TO node IDs
+                # Column names don't matter, but order does: FROM node ID, TO node ID, then properties
+                self.conn.execute(f'COPY PERSON_TO_PERSON FROM "{person_to_person_csv}" (HEADER=true)')
+                # Count imported relationships
+                result = self.conn.execute("MATCH ()-[r:PERSON_TO_PERSON]->() RETURN count(r) as count")
+                rel_count = list(result)[0][0]
+                p2p_time = time.time() - p2p_start
+                console.print(f"[green]  ✓ Imported {rel_count} Person-to-Person relationships in {p2p_time:.2f}s[/green]")
+                if rel_count == 0 and validated_row_count > 0:
+                    console.print(f"[yellow]  ⚠ WARNING: No relationships imported despite {validated_row_count} valid rows in CSV[/yellow]")
+                    console.print(f"[yellow]    This might indicate a CSV format issue or Kuzu COPY FROM problem[/yellow]")
+                    console.print(f"[yellow]    Kuzu requires: first column = FROM node ID, second column = TO node ID[/yellow]")
+                    # Try to show a sample row
+                    try:
+                        with open(person_to_person_csv, 'r', encoding='utf-8') as f:
+                            reader = csv.DictReader(f)
+                            sample_row = next(reader, None)
+                            if sample_row:
+                                console.print(f"[yellow]    Sample row: {dict(list(sample_row.items())[:3])}[/yellow]")
+                    except:
+                        pass
+            except Exception as e:
+                console.print(f"[red]  ✗ Error importing Person-to-Person relationships: {e}[/red]")
+                # Show more details about the error
+                console.print(f"[red]    CSV path: {person_to_person_csv}[/red]")
+                console.print(f"[red]    Kuzu COPY FROM requires: first column = FROM node ID, second column = TO node ID[/red]")
+                console.print(f"[red]    Try checking the CSV format matches Kuzu's expectations[/red]")
+                raise
         else:
             console.print("[yellow]  ⚠ Person-to-Person CSV not found, skipping...[/yellow]")
         
@@ -576,13 +874,28 @@ class Step3Builder:
         person_to_company_csv = db_input_dir / "person_to_company.csv"
         if person_to_company_csv.exists():
             console.print("[cyan]  → Importing Person-to-Company relationships...[/cyan]")
+            # Validate and clean CSV
+            is_valid, total_rows, invalid_rows = self._validate_csv_for_import(person_to_company_csv, 'person_id')
+            if invalid_rows > 0:
+                console.print(f"[yellow]  ⚠ Found {invalid_rows} row(s) with empty/NULL person_id in person_to_company.csv, cleaning...[/yellow]")
+                person_to_company_csv = self._clean_csv_for_import(person_to_company_csv, 'person_id', 'company_id')
+            
+            # Validate that referenced entities exist
+            person_to_company_csv = self._validate_relationship_entities(
+                person_to_company_csv, 'person_id', 'company_id', existing_person_ids, 'Person', existing_company_ids, 'Company'
+            )
+            
             p2c_start = time.time()
-            self.conn.execute(f'COPY PERSON_TO_COMPANY FROM "{person_to_company_csv}" (HEADER=true)')
-            # Count imported relationships
-            result = self.conn.execute("MATCH ()-[r:PERSON_TO_COMPANY]->() RETURN count(r) as count")
-            rel_count = list(result)[0][0]
-            p2c_time = time.time() - p2c_start
-            console.print(f"[green]  ✓ Imported {rel_count} Person-to-Company relationships in {p2c_time:.2f}s[/green]")
+            try:
+                self.conn.execute(f'COPY PERSON_TO_COMPANY FROM "{person_to_company_csv}" (HEADER=true)')
+                # Count imported relationships
+                result = self.conn.execute("MATCH ()-[r:PERSON_TO_COMPANY]->() RETURN count(r) as count")
+                rel_count = list(result)[0][0]
+                p2c_time = time.time() - p2c_start
+                console.print(f"[green]  ✓ Imported {rel_count} Person-to-Company relationships in {p2c_time:.2f}s[/green]")
+            except Exception as e:
+                console.print(f"[red]  ✗ Error importing Person-to-Company relationships: {e}[/red]")
+                raise
         else:
             console.print("[yellow]  ⚠ Person-to-Company CSV not found, skipping...[/yellow]")
         
@@ -590,13 +903,28 @@ class Step3Builder:
         company_to_company_csv = db_input_dir / "company_to_company.csv"
         if company_to_company_csv.exists():
             console.print("[cyan]  → Importing Company-to-Company relationships...[/cyan]")
+            # Validate and clean CSV
+            is_valid, total_rows, invalid_rows = self._validate_csv_for_import(company_to_company_csv, 'source_id')
+            if invalid_rows > 0:
+                console.print(f"[yellow]  ⚠ Found {invalid_rows} row(s) with empty/NULL source_id in company_to_company.csv, cleaning...[/yellow]")
+                company_to_company_csv = self._clean_csv_for_import(company_to_company_csv, 'source_id', 'target_id')
+            
+            # Validate that referenced entities exist
+            company_to_company_csv = self._validate_relationship_entities(
+                company_to_company_csv, 'source_id', 'target_id', existing_company_ids, 'Company'
+            )
+            
             c2c_start = time.time()
-            self.conn.execute(f'COPY COMPANY_TO_COMPANY FROM "{company_to_company_csv}" (HEADER=true)')
-            # Count imported relationships
-            result = self.conn.execute("MATCH ()-[r:COMPANY_TO_COMPANY]->() RETURN count(r) as count")
-            rel_count = list(result)[0][0]
-            c2c_time = time.time() - c2c_start
-            console.print(f"[green]  ✓ Imported {rel_count} Company-to-Company relationships in {c2c_time:.2f}s[/green]")
+            try:
+                self.conn.execute(f'COPY COMPANY_TO_COMPANY FROM "{company_to_company_csv}" (HEADER=true)')
+                # Count imported relationships
+                result = self.conn.execute("MATCH ()-[r:COMPANY_TO_COMPANY]->() RETURN count(r) as count")
+                rel_count = list(result)[0][0]
+                c2c_time = time.time() - c2c_start
+                console.print(f"[green]  ✓ Imported {rel_count} Company-to-Company relationships in {c2c_time:.2f}s[/green]")
+            except Exception as e:
+                console.print(f"[red]  ✗ Error importing Company-to-Company relationships: {e}[/red]")
+                raise
         else:
             console.print("[yellow]  ⚠ Company-to-Company CSV not found, skipping...[/yellow]")
         

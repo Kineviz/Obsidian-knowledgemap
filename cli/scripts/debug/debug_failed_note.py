@@ -56,7 +56,7 @@ def debug_failed_note():
     # Get task
     db_path = vault_path / ".kineviz_graph" / "classification.db"
     db = TaskDatabase(db_path)
-    task = db.get_task("gxr_vc_analysis")
+    task = db.get_task("_vc_analysis")
     
     if not task:
         print("Error: Task not found")

@@ -169,10 +169,10 @@ async def test_classification(test_file: Path):
     # Load VC analysis task - get db path from vault
     db_path = vault_path / ".kineviz_graph" / "classification.db"
     task_db = TaskDatabase(db_path)
-    task = task_db.get_task("gxr_vc_analysis")
+    task = task_db.get_task("_vc_analysis")
     
     if not task:
-        console.print(f"[red]✗ VC analysis task (gxr_vc_analysis) not found[/red]")
+        console.print(f"[red]✗ VC analysis task (_vc_analysis) not found[/red]")
         console.print(f"[yellow]Run: uv run classification_task_manager.py add-task to create it[/yellow]")
         return False
     

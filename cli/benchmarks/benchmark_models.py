@@ -213,7 +213,7 @@ class ModelBenchmark:
                 )
             
             task_db = TaskDatabase(db_path)
-            task = task_db.get_task("gxr_vc_analysis")
+            task = task_db.get_task("_vc_analysis")
             
             # task was already retrieved above, now use it
             if not task:
@@ -223,7 +223,7 @@ class ModelBenchmark:
                     task_type="vc_classification",
                     success=False,
                     response_time=0,
-                    error="VC analysis task (gxr_vc_analysis) not found"
+                    error="VC analysis task (_vc_analysis) not found"
                 )
             
             # Temporarily override model in task
@@ -259,7 +259,7 @@ class ModelBenchmark:
             
             # Run classification
             success, result, error = await classifier.classify_note(
-                task_tag="gxr_vc_analysis",
+                task_tag="_vc_analysis",
                 note_path=str(self.test_file.relative_to(vault_path)),
                 force=True,  # Force re-classification
                 dry_run=False

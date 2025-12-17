@@ -43,7 +43,7 @@ uv run benchmark_models.py "Companies/VC/Eniac Ventures.md" -o results.json
   - Number of relationships extracted
 
 ### 2. VC Multi-Tag Classification
-- Runs the `gxr_vc_analysis` multi-tag task
+- Runs the `_vc_analysis` multi-tag task
 - Extracts VC profile metadata (stages, sectors, etc.)
 - Measures:
   - Success rate
