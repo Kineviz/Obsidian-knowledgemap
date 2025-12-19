@@ -26,7 +26,9 @@ import psutil
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 import kuzu
 
@@ -852,14 +854,49 @@ def create_app(query_processor: KuzuQueryProcessor) -> FastAPI:
     
     app = FastAPI(title="Kuzu Neo4j-Compatible API", version="1.0.0", lifespan=lifespan)
     
-    # Add CORS middleware
+    # Add CORS middleware - allow specific GraphXR domains
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "https://graphxr.kineviz.com",
+            "https://dev.graphxr.kineviz.com",
+            "https://staging.graphxr.kineviz.com",
+            "http://localhost:3000",  # For local development
+            "http://localhost:8080",  # Alternative local port
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["*"],
     )
+    
+    # Custom middleware to add private network header AFTER CORS processes the request
+    # This middleware runs AFTER CORSMiddleware modifies the response
+    class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            # Let the request go through (including CORS processing)
+            response = await call_next(request)
+            
+            # Check if this is from an allowed origin
+            origin = request.headers.get("origin", "")
+            allowed_origins = [
+                "https://graphxr.kineviz.com",
+                "https://dev.graphxr.kineviz.com",
+                "https://staging.graphxr.kineviz.com",
+                "http://localhost:3000",
+                "http://localhost:8080",
+            ]
+            
+            # Add private network header for all requests from allowed origins
+            if origin in allowed_origins:
+                response.headers["Access-Control-Allow-Private-Network"] = "true"
+                logger.info(f"Added private network header for {request.method} request from {origin}")
+            
+            return response
+    
+    # Add private network middleware AFTER CORS (this runs last, modifies response after CORS)
+    app.add_middleware(PrivateNetworkAccessMiddleware)
+    
     
     # Debug endpoint to get crash information
     @app.get("/debug/crashes")
@@ -1143,9 +1180,14 @@ def main():
     app = create_app(query_processor)
     
     # Determine protocol and port
+    # Note: Default HTTPS port is 8443, HTTP port is 7001
     protocol = "https" if use_ssl else "http"
-    default_port = 8443 if use_ssl else 7001
-    port = args.port if args.port != 7001 else default_port
+    if use_ssl and args.port == 7001:
+        # If SSL is enabled and user didn't specify a port, use 8443
+        port = 8443
+    else:
+        # Use specified port or default
+        port = args.port
     
     # Run the server
     print(f"Starting Kuzu Neo4j-Compatible API Server on {protocol}://{args.host}:{port}")

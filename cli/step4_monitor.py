@@ -331,9 +331,20 @@ class VaultMonitor:
         self.manual_trigger = None  # Will be initialized after server_manager
         
         # Initialize Kuzu server manager
+        # Check for SSL certificates (optional HTTPS support)
+        ssl_cert_path = None
+        ssl_key_path = None
+        ssl_certs_dir = Path(__file__).parent / "ssl_certs"
+        if (ssl_certs_dir / "cert.pem").exists() and (ssl_certs_dir / "key.pem").exists():
+            ssl_cert_path = str(ssl_certs_dir / "cert.pem")
+            ssl_key_path = str(ssl_certs_dir / "key.pem")
+            console.print("[green]✓ SSL certificates found - enabling HTTPS[/green]")
+        
         self.server_manager = KuzuServerManager(
             db_path=self.db_path,
-            port=server_port
+            port=server_port,
+            ssl_cert=ssl_cert_path,
+            ssl_key=ssl_key_path
         )
         
         # Initialize manual trigger with server manager

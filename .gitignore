@@ -16,3 +16,6 @@ test_*.kz
 
 # Distribution packages
 kineviz-obsidian-base-*
+
+# SSL certificates (self-signed)
+cli/ssl_certs/

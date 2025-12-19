@@ -22,10 +22,17 @@ console = Console()
 class KuzuServerManager:
     """Manages the Kuzu Neo4j server process"""
     
-    def __init__(self, db_path: str, port: int = 7001, host: str = "0.0.0.0"):
+    def __init__(self, db_path: str, port: int = 7001, host: str = "0.0.0.0", 
+                 ssl_cert: Optional[str] = None, ssl_key: Optional[str] = None):
         self.db_path = Path(db_path)
-        self.port = port
+        # If SSL is enabled and port is default 7001, switch to 8443
+        if ssl_cert and ssl_key and port == 7001:
+            self.port = 8443
+        else:
+            self.port = port
         self.host = host
+        self.ssl_cert = ssl_cert
+        self.ssl_key = ssl_key
         self.process: Optional[subprocess.Popen] = None
         self.is_running = False
         self._lock = threading.Lock()
@@ -57,7 +64,15 @@ class KuzuServerManager:
                     "--host", self.host
                 ]
                 
-                console.print(f"[cyan]Starting Kuzu server on {self.host}:{self.port}[/cyan]")
+                # Add SSL certificates if provided
+                if self.ssl_cert and self.ssl_key:
+                    cmd.extend(["--ssl-cert", str(self.ssl_cert)])
+                    cmd.extend(["--ssl-key", str(self.ssl_key)])
+                    protocol = "https"
+                else:
+                    protocol = "http"
+                
+                console.print(f"[cyan]Starting Kuzu server on {protocol}://{self.host}:{self.port}[/cyan]")
                 
                 # Start process in background (don't capture output to avoid hanging)
                 self.process = subprocess.Popen(
@@ -147,7 +162,8 @@ class KuzuServerManager:
     
     def get_server_url(self) -> str:
         """Get the server URL"""
-        return f"http://{self.host}:{self.port}"
+        protocol = "https" if (self.ssl_cert and self.ssl_key) else "http"
+        return f"{protocol}://{self.host}:{self.port}"
     
     def cleanup(self):
         """Cleanup resources"""

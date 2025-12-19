@@ -435,7 +435,7 @@ EXAMPLE OUTPUT:
                 model_name=model_name,
                 generation_config={
                     "temperature": kwargs.get("temperature", 0.1),
-                    "max_output_tokens": kwargs.get("max_tokens", 2000),
+                    "max_output_tokens": kwargs.get("max_tokens", 8000),  # Increased from 2000 to 8000
                 }
             )
             
@@ -449,7 +449,34 @@ EXAMPLE OUTPUT:
             )
             
             response_time = time.time() - start_time
+            
+            # Check if response was truncated or blocked
+            if hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                finish_reason = candidate.finish_reason
+                
+                # Log finish reason for debugging
+                finish_reason_names = {
+                    0: "UNSPECIFIED",
+                    1: "STOP (normal completion)",
+                    2: "MAX_TOKENS",
+                    3: "SAFETY",
+                    4: "RECITATION",
+                    5: "OTHER"
+                }
+                reason_name = finish_reason_names.get(finish_reason, f"UNKNOWN({finish_reason})")
+                logger.info(f"Gemini finish_reason: {reason_name}")
+                
+                if finish_reason == 2:  # MAX_TOKENS
+                    logger.warning(f"Gemini response was truncated due to max_tokens limit (model: {model_name})")
+                elif finish_reason == 3:  # SAFETY
+                    logger.warning(f"Gemini response was blocked by safety filters (model: {model_name})")
+                    # Try to get safety ratings
+                    if hasattr(candidate, 'safety_ratings'):
+                        logger.warning(f"Safety ratings: {candidate.safety_ratings}")
+            
             content = response.text if hasattr(response, 'text') and response.text else str(response)
+            logger.info(f"Gemini response length: {len(content)} chars")
             
             # Try to get token count if available
             token_count = None
